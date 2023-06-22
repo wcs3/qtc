@@ -5,6 +5,7 @@
 
 #include "vla.h"
 #include "assets.h"
+#include "bitstream.h"
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_BINARY(byte)       \
@@ -59,114 +60,6 @@ uint32_t interleave_u16_zeroes(uint16_t u16)
 uint32_t xy_to_morton(uint16_t x, uint16_t y)
 {
     return interleave_u16_zeroes(x) | (interleave_u16_zeroes(y) << 1);
-}
-
-typedef struct
-{
-    size_t alloced;
-    size_t index;
-    uint8_t bit_pos;
-    uint8_t data[];
-} bitstream_writer_t;
-
-bitstream_writer_t *bitstream_writer_create()
-{
-    bitstream_writer_t *bsw = malloc(sizeof(bitstream_writer_t) + sizeof(uint8_t));
-    bsw->data[0] = 0;
-    bsw->alloced = 1;
-    bsw->index = 0;
-    bsw->bit_pos = 7;
-
-    return bsw;
-}
-
-void bitstream_write_bit(bitstream_writer_t **bsw, uint32_t bit)
-{
-    (*bsw)->data[(*bsw)->index] |= (bit & 1) << (*bsw)->bit_pos;
-
-    if ((*bsw)->bit_pos == 0)
-    {
-        (*bsw)->index++;
-        (*bsw)->bit_pos = 7;
-        if ((*bsw)->index == (*bsw)->alloced)
-        {
-            (*bsw)->alloced *= 2;
-            *bsw = realloc(*bsw, sizeof(bitstream_writer_t) + (*bsw)->alloced * sizeof(uint8_t));
-            memset(&(*bsw)->data[(*bsw)->index], 0, (*bsw)->alloced / 2);
-        }
-    }
-    else
-    {
-        (*bsw)->bit_pos--;
-    }
-}
-
-void bitstream_write_bits(bitstream_writer_t **bsw, uint32_t bits, uint8_t bit_cnt)
-{
-    assert(bit_cnt <= 32);
-
-    while (bit_cnt)
-    {
-        bitstream_write_bit(bsw, bits >> (bit_cnt - 1));
-        bit_cnt--;
-    }
-}
-
-void bitstream_writer_get_data_copy(bitstream_writer_t *bsw, uint8_t **copy, size_t *copy_len)
-{
-    *copy_len = bsw->index;
-    if (bsw->bit_pos != 7)
-    {
-        (*copy_len)++;
-    }
-
-    *copy = malloc(*copy_len);
-    memcpy(*copy, bsw->data, *copy_len);
-}
-
-typedef struct
-{
-    uint8_t bit_pos;
-    uint8_t *data;
-} bitstream_reader_t;
-
-void bitstream_reader_init(bitstream_reader_t *bs, uint8_t *arr, uint8_t bit_pos)
-{
-    assert(bit_pos <= 7);
-    bs->bit_pos = bit_pos;
-    bs->data = arr;
-}
-
-uint8_t bitstream_read_bit(bitstream_reader_t *bs)
-{
-    uint8_t bit = ((*bs->data) >> bs->bit_pos) & 0x1;
-
-    if (bs->bit_pos == 7)
-    {
-        bs->data++;
-        bs->bit_pos = 0;
-    }
-    else
-    {
-        bs->bit_pos++;
-    }
-
-    return bit;
-}
-
-uint32_t bitstream_read_bits(bitstream_reader_t *bs, uint8_t bit_cnt)
-{
-    assert(bit_cnt <= 32);
-
-    uint32_t bits = 0;
-
-    while (bit_cnt)
-    {
-        bit_cnt--;
-        bits = (bits >> 1) | (bitstream_read_bit(bs) << bit_cnt);
-    }
-
-    return bits;
 }
 
 typedef struct qt_ir_node_t
@@ -250,17 +143,40 @@ lcqt_t *qt_ir_to_lcqt(qt_ir_t *ir)
 
 lqt_t *lcqt_decompress(lcqt_t *lcqt)
 {
-    bitstream_writer_t *bsw = bitstream_writer_create();
-    bitstream_reader_t bsr;
-    bitstream_reader_init(&bsr, lcqt->data, 0);
-    
-    size_t lvl_nodes = 1;
-    while(lvl_nodes) {
-        size_t prev_lvl_nodes = lvl_nodes;
-        lvl_nodes = 0;
-        for(size_t i = 0; i < prev_lvl_nodes; i++) {
+    bitstream_t *lqt_bits = bitstream_create();
+    bitstream_t *lcqt_bits = bitstream_create();
 
-        } 
+    bitstream_write_array(&lcqt_bits, lcqt->data, lcqt->data_size);
+
+    bitstream_write_bits(&lqt_bits, bitstream_read_bits(lcqt_bits, 4), 4);
+
+    while (lcqt_bits->read_index < lcqt_bits->write_index || lcqt_bits->read_bit_pos < lcqt_bits->write_bit_pos)
+    {
+        uint8_t parent = bitstream_read_bits(lqt_bits, 4);
+
+        if (parent == 0b0000)
+        {
+            bitstream_write_bits(&lqt_bits, 0, 16);
+        }
+        else
+        {
+            uint8_t nw = bitstream_read_bits(lqt_bits, 4);
+            if (nw == 0b0000 && parent == 0b1111)
+            {
+                for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+                {
+                    bitstream_write_bits(&lqt_bits, 0xFFFF, 16);
+                }
+            }
+            else
+            {
+                bitstream_write_bits(&lqt_bits, nw, 4);
+                for (qt_quad_e quad = 1; quad < QT_QUAD_cnt; quad++)
+                {
+                    bitstream_write_bits(&lqt_bits, bitstream_read_bits(lcqt_bits, 4), 4);
+                }
+            }
+        }
     }
 }
 
