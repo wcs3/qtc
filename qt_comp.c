@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "vla.h"
+#include "assets.h"
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_BINARY(byte)       \
@@ -15,6 +16,13 @@
         ((byte)&0x04 ? '1' : '0'), \
         ((byte)&0x02 ? '1' : '0'), \
         ((byte)&0x01 ? '1' : '0')
+
+#define NIBBLE_TO_BINARY_PATTERN "%c%c%c%c"
+#define NIBBLE_TO_BINARY(nibble)     \
+    ((nibble)&0x08 ? '1' : '0'),     \
+        ((nibble)&0x04 ? '1' : '0'), \
+        ((nibble)&0x02 ? '1' : '0'), \
+        ((nibble)&0x01 ? '1' : '0')
 
 typedef enum
 {
@@ -36,15 +44,6 @@ typedef enum
     QT_QUAD_cnt
 } qt_quad_e;
 
-typedef struct
-{
-    struct
-    {
-        uint32_t r : 4;
-    } header;
-    vla_t *qt_vla;
-} lcqt_t;
-
 uint32_t interleave_u16_zeroes(uint16_t u16)
 {
     uint32_t u32 = u16;
@@ -62,114 +61,112 @@ uint32_t xy_to_morton(uint16_t x, uint16_t y)
     return interleave_u16_zeroes(x) | (interleave_u16_zeroes(y) << 1);
 }
 
-uint8_t *lqt_from_bitmap(uint8_t *pix_arr, uint8_t r)
+typedef struct
 {
-    assert(r < 16);
-    uint16_t w = 1 << r;
+    size_t alloced;
+    size_t index;
+    uint8_t bit_pos;
+    uint8_t data[];
+} bitstream_writer_t;
 
-    size_t qt_size = ((1 << (2 * r + 2)) - 1) / 3;
+bitstream_writer_t *bitstream_writer_create()
+{
+    bitstream_writer_t *bsw = malloc(sizeof(bitstream_writer_t) + sizeof(uint8_t));
+    bsw->data[0] = 0;
+    bsw->alloced = 1;
+    bsw->index = 0;
+    bsw->bit_pos = 7;
 
-    uint8_t *qt = malloc(qt_size * sizeof(qt[0]));
-    memset(qt, 0, qt_size);
-
-    uint8_t lvl = r;
-    size_t lvl_width = w * w;
-    uint8_t *lvl_start_p = qt + qt_size - (lvl_width);
-
-    size_t byte_pos = 0;
-    uint8_t bit_pos = 0;
-
-    // populate leaves of quadtree with pixel data
-    for (uint16_t y = 0; y < w; y++)
-    {
-        for (uint16_t x = 0; x < w; x++)
-        {
-            uint32_t mc = xy_to_morton(x, y);
-
-            lvl_start_p[mc] = ((pix_arr[byte_pos] >> bit_pos) & 0x1) ? 0x0F : 0x00;
-
-            bit_pos++;
-
-            if (bit_pos == 8)
-            {
-                byte_pos++;
-                bit_pos = 0;
-            }
-        }
-    }
-
-    lvl_width /= 4;
-
-    // build quadtree from leaves up to root
-    while (lvl_width > 0)
-    {
-        uint8_t *children_p = lvl_start_p;
-        lvl_start_p -= lvl_width;
-
-        uint8_t *lvl_p = lvl_start_p;
-
-        for (uint32_t i = 0; i < lvl_width; i++, lvl_p++)
-        {
-            for (uint8_t quad = 0; quad < QT_QUAD_cnt; quad++)
-            {
-                *lvl_p |= (*children_p != 0) << quad;
-                children_p++;
-            }
-        }
-
-        lvl_width /= 4;
-    }
-
-    qt[0] |= (r << 4);
-
-    return qt;
+    return bsw;
 }
 
-void lqt_print_rec(uint8_t *qt, size_t index, uint8_t curr_r, uint8_t r, qt_quad_e quad)
+void bitstream_write_bit(bitstream_writer_t **bsw, uint32_t bit)
 {
-    if (curr_r == r || qt[index] == 0)
+    (*bsw)->data[(*bsw)->index] |= (bit & 1) << (*bsw)->bit_pos;
+
+    if ((*bsw)->bit_pos == 0)
     {
-        return;
+        (*bsw)->index++;
+        (*bsw)->bit_pos = 7;
+        if ((*bsw)->index == (*bsw)->alloced)
+        {
+            (*bsw)->alloced *= 2;
+            *bsw = realloc(*bsw, sizeof(bitstream_writer_t) + (*bsw)->alloced * sizeof(uint8_t));
+            memset(&(*bsw)->data[(*bsw)->index], 0, (*bsw)->alloced / 2);
+        }
     }
-
-    for (uint8_t i = 0; i < curr_r; i++)
+    else
     {
-        printf("\t");
-    }
-
-    switch (quad)
-    {
-    case QT_QUAD_NW:
-        printf("NW: ");
-        break;
-    case QT_QUAD_NE:
-        printf("NE: ");
-        break;
-    case QT_QUAD_SE:
-        printf("SE: ");
-        break;
-    case QT_QUAD_SW:
-        printf("SW: ");
-        break;
-    default:
-        break;
-    }
-
-    printf(BYTE_TO_BINARY_PATTERN "\n", BYTE_TO_BINARY(qt[index]));
-
-    for (uint8_t i = 0; i < QT_QUAD_cnt; i++)
-    {
-        lqt_print_rec(qt, 4 * index + i + 1, curr_r + 1, r, i);
+        (*bsw)->bit_pos--;
     }
 }
 
-void lqt_print(uint8_t *lqt)
+void bitstream_write_bits(bitstream_writer_t **bsw, uint32_t bits, uint8_t bit_cnt)
 {
-    assert(lqt);
+    assert(bit_cnt <= 32);
 
-    uint8_t r = lqt[0] >> 4;
+    while (bit_cnt)
+    {
+        bitstream_write_bit(bsw, bits >> (bit_cnt - 1));
+        bit_cnt--;
+    }
+}
 
-    lqt_print_rec(lqt, 0, 0, r, QT_QUAD_cnt);
+void bitstream_writer_get_data_copy(bitstream_writer_t *bsw, uint8_t **copy, size_t *copy_len)
+{
+    *copy_len = bsw->index;
+    if (bsw->bit_pos != 7)
+    {
+        (*copy_len)++;
+    }
+
+    *copy = malloc(*copy_len);
+    memcpy(*copy, bsw->data, *copy_len);
+}
+
+typedef struct
+{
+    uint8_t bit_pos;
+    uint8_t *data;
+} bitstream_reader_t;
+
+void bitstream_reader_init(bitstream_reader_t *bs, uint8_t *arr, uint8_t bit_pos)
+{
+    assert(bit_pos <= 7);
+    bs->bit_pos = bit_pos;
+    bs->data = arr;
+}
+
+uint8_t bitstream_read_bit(bitstream_reader_t *bs)
+{
+    uint8_t bit = ((*bs->data) >> bs->bit_pos) & 0x1;
+
+    if (bs->bit_pos == 7)
+    {
+        bs->data++;
+        bs->bit_pos = 0;
+    }
+    else
+    {
+        bs->bit_pos++;
+    }
+
+    return bit;
+}
+
+uint32_t bitstream_read_bits(bitstream_reader_t *bs, uint8_t bit_cnt)
+{
+    assert(bit_cnt <= 32);
+
+    uint32_t bits = 0;
+
+    while (bit_cnt)
+    {
+        bit_cnt--;
+        bits = (bits >> 1) | (bitstream_read_bit(bs) << bit_cnt);
+    }
+
+    return bits;
 }
 
 typedef struct qt_ir_node_t
@@ -182,9 +179,92 @@ typedef struct
     qt_ir_node_t *root;
     bool invert;
     uint8_t r;
+    uint16_t w;
+    uint16_t h;
 } qt_ir_t;
 
-void qt_node_delete(qt_ir_node_t *node)
+uint8_t qt_ir_node_to_nib(qt_ir_node_t *node)
+{
+    uint8_t nib = 0;
+    for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+    {
+        nib |= (node->quads[quad] != NULL) << quad;
+    }
+
+    return nib;
+}
+
+void qt_ir_write_level(qt_ir_node_t *node, bitstream_writer_t **bs, uint8_t lvl)
+{
+    if (node == NULL)
+    {
+        return;
+    }
+
+    if (lvl == 0)
+    {
+        uint8_t nib = qt_ir_node_to_nib(node);
+        bitstream_write_bits(bs, nib, 4);
+    }
+    else
+    {
+        for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+        {
+            qt_ir_write_level(node->quads[quad], bs, lvl - 1);
+        }
+    }
+}
+
+typedef struct
+{
+    uint8_t r;
+    uint8_t *data;
+    size_t data_size;
+} lcqt_t, lqt_t;
+
+lcqt_t *qt_ir_to_lcqt(qt_ir_t *ir)
+{
+    bitstream_writer_t *bs = bitstream_writer_create();
+    assert(bs != NULL);
+
+    bool left_nib = false;
+    uint8_t byte = 0;
+
+    uint8_t r = ir->r;
+
+    for (uint8_t lvl = 0; lvl < r; lvl++)
+    {
+        qt_ir_write_level(ir->root, &bs, lvl);
+    }
+
+    lcqt_t *lcqt = malloc(sizeof(lcqt_t));
+    assert(lcqt != NULL);
+
+    lcqt->r = r;
+    bitstream_writer_get_data_copy(bs, &(lcqt->data), &(lcqt->data_size));
+
+    free(bs);
+
+    return lcqt;
+}
+
+lqt_t *lcqt_decompress(lcqt_t *lcqt)
+{
+    bitstream_writer_t *bsw = bitstream_writer_create();
+    bitstream_reader_t bsr;
+    bitstream_reader_init(&bsr, lcqt->data, 0);
+    
+    size_t lvl_nodes = 1;
+    while(lvl_nodes) {
+        size_t prev_lvl_nodes = lvl_nodes;
+        lvl_nodes = 0;
+        for(size_t i = 0; i < prev_lvl_nodes; i++) {
+
+        } 
+    }
+}
+
+void qt_ir_node_delete(qt_ir_node_t *node)
 {
     if (node == NULL)
     {
@@ -193,7 +273,7 @@ void qt_node_delete(qt_ir_node_t *node)
 
     for (uint8_t i = 0; i < QT_QUAD_cnt; i++)
     {
-        qt_node_delete(node->quads[i]);
+        qt_ir_node_delete(node->quads[i]);
     }
 
     free(node);
@@ -202,6 +282,21 @@ void qt_node_delete(qt_ir_node_t *node)
 bool qt_ir_node_get_val(qt_ir_node_t *node, uint16_t x, uint16_t y, uint8_t r)
 {
     if (r == 0)
+    {
+        return true;
+    }
+
+    bool all_null = true;
+    for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+    {
+        if (node->quads[quad] != NULL)
+        {
+            all_null = false;
+            break;
+        }
+    }
+
+    if (all_null)
     {
         return true;
     }
@@ -221,6 +316,121 @@ bool qt_ir_node_get_val(qt_ir_node_t *node, uint16_t x, uint16_t y, uint8_t r)
 bool qt_ir_get_val(qt_ir_t *ir, uint16_t x, uint16_t y)
 {
     return qt_ir_node_get_val(ir->root, x, y, ir->r);
+}
+
+size_t qt_ir_nodes_count(qt_ir_node_t *node)
+{
+    if (node == NULL)
+    {
+        return 0;
+    }
+
+    size_t sub_count = 0;
+    for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+    {
+        sub_count += qt_ir_nodes_count(node->quads[quad]);
+    }
+
+    return 1 + sub_count;
+}
+
+qt_ir_t *qt_ir_from_bmp(const uint8_t *bmp_arr, uint16_t pix_w, uint16_t pix_h)
+{
+    uint8_t r = 0;
+    while ((1 << r) < pix_w)
+    {
+        r++;
+    }
+
+    while ((1 << r) < pix_h)
+    {
+        r++;
+    }
+
+    uint16_t qt_w = (1 << r);
+
+    uint16_t bmp_w_bytes = (pix_w + 7) / 8;
+    const uint8_t *row = bmp_arr;
+
+    uint32_t leaf_cnt = qt_w * qt_w;
+
+    qt_ir_node_t **lvl_nodes = malloc(sizeof(qt_ir_node_t *) * leaf_cnt);
+
+    for (uint16_t y = 0; y < qt_w; y++)
+    {
+        for (uint16_t x = 0; x < qt_w; x++)
+        {
+            qt_ir_node_t *node = NULL;
+            if (x < pix_w && y < pix_h)
+            {
+                if ((row[x / 8] >> (x % 8)) & 0x1)
+                {
+                    node = malloc(sizeof(qt_ir_node_t));
+                    for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+                    {
+                        node->quads[quad] = NULL;
+                    }
+                }
+            }
+
+            uint32_t pix_mc = xy_to_morton(x, y);
+            lvl_nodes[pix_mc] = node;
+        }
+
+        row += bmp_w_bytes;
+    }
+
+    uint32_t lvl_width = leaf_cnt;
+
+    while (lvl_width > 1)
+    {
+        uint32_t prev_lvl_width = lvl_width;
+        lvl_width /= 4;
+        qt_ir_node_t **prev_lvl_nodes = lvl_nodes;
+        lvl_nodes = malloc(sizeof(qt_ir_node_t *) * lvl_width);
+
+        for (uint32_t i = 0; i < lvl_width; i++)
+        {
+            qt_ir_node_t *node = NULL;
+
+            bool child_not_null = false;
+            for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+            {
+                if (prev_lvl_nodes[quad] != NULL)
+                {
+                    child_not_null = true;
+                    break;
+                }
+            }
+
+            if (child_not_null)
+            {
+                node = malloc(sizeof(qt_ir_node_t));
+                for (uint8_t quad = 0; quad < QT_QUAD_cnt; quad++)
+                {
+                    node->quads[quad] = *prev_lvl_nodes;
+                    prev_lvl_nodes++;
+                }
+            }
+            else
+            {
+                prev_lvl_nodes += QT_QUAD_cnt;
+            }
+
+            lvl_nodes[i] = node;
+        }
+
+        free(prev_lvl_nodes - prev_lvl_width);
+    }
+
+    qt_ir_t *qt_ir = malloc(sizeof(qt_ir[0]));
+
+    qt_ir->root = *lvl_nodes;
+    qt_ir->r = r;
+    qt_ir->w = pix_w;
+    qt_ir->h = pix_h;
+
+    return qt_ir;
 }
 
 qt_ir_t *qt_ir_create(uint8_t *pix_arr, uint8_t r)
@@ -305,8 +515,49 @@ qt_ir_t *qt_ir_create(uint8_t *pix_arr, uint8_t r)
 
     qt_ir->root = *lvl_nodes;
     qt_ir->r = r;
+    qt_ir->w = w;
+    qt_ir->h = w;
 
     return qt_ir;
+}
+
+bool qt_ir_node_compress(qt_ir_node_t *node, uint8_t r)
+{
+    if (node == NULL)
+    {
+        return false;
+    }
+
+    if (r == 0)
+    {
+        return true;
+    }
+
+    bool all_set = true;
+
+    for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+    {
+        if (!qt_ir_node_compress(node->quads[quad], r - 1))
+        {
+            all_set = false;
+        }
+    }
+
+    if (all_set)
+    {
+        for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+        {
+            qt_ir_node_delete(node->quads[quad]);
+            node->quads[quad] = NULL;
+        }
+    }
+
+    return all_set;
+}
+
+void qt_ir_compress(qt_ir_t *ir)
+{
+    qt_ir_node_compress(ir->root, ir->r);
 }
 
 bool qt_ir_nodes_equal(qt_ir_node_t *a, qt_ir_node_t *b)
@@ -321,60 +572,6 @@ bool qt_ir_nodes_equal(qt_ir_node_t *a, qt_ir_node_t *b)
            qt_ir_nodes_equal(a->quads[2], b->quads[2]) &&
            qt_ir_nodes_equal(a->quads[3], b->quads[3]);
 }
-
-bool qt_ir_nodes_v_mirrored(qt_ir_node_t *a, qt_ir_node_t *b)
-{
-    if (a == NULL || b == NULL)
-    {
-        return a == b;
-    }
-
-    return qt_ir_nodes_v_mirrored(a->quads[QT_QUAD_NW], b->quads[QT_QUAD_NE]) &&
-           qt_ir_nodes_v_mirrored(a->quads[QT_QUAD_NE], b->quads[QT_QUAD_NW]) &&
-           qt_ir_nodes_v_mirrored(a->quads[QT_QUAD_SW], b->quads[QT_QUAD_SE]) &&
-           qt_ir_nodes_v_mirrored(a->quads[QT_QUAD_SE], b->quads[QT_QUAD_SW]);
-}
-
-bool qt_ir_nodes_h_mirrored(qt_ir_node_t *a, qt_ir_node_t *b)
-{
-    if (a == NULL || b == NULL)
-    {
-        return a == b;
-    }
-
-    return qt_ir_nodes_h_mirrored(a->quads[QT_QUAD_NW], b->quads[QT_QUAD_SW]) &&
-           qt_ir_nodes_h_mirrored(a->quads[QT_QUAD_SW], b->quads[QT_QUAD_NW]) &&
-           qt_ir_nodes_h_mirrored(a->quads[QT_QUAD_NE], b->quads[QT_QUAD_SE]) &&
-           qt_ir_nodes_h_mirrored(a->quads[QT_QUAD_SE], b->quads[QT_QUAD_NE]);
-}
-
-bool qt_ir_nodes_d1_mirrored(qt_ir_node_t *a, qt_ir_node_t *b)
-{
-    if (a == NULL || b == NULL)
-    {
-        return a == b;
-    }
-
-    return qt_ir_nodes_d1_mirrored(a->quads[QT_QUAD_NW], b->quads[QT_QUAD_SE]) &&
-           qt_ir_nodes_d1_mirrored(a->quads[QT_QUAD_SE], b->quads[QT_QUAD_NW]) &&
-           qt_ir_nodes_d1_mirrored(a->quads[QT_QUAD_NE], b->quads[QT_QUAD_NE]) &&
-           qt_ir_nodes_d1_mirrored(a->quads[QT_QUAD_SW], b->quads[QT_QUAD_SW]);
-}
-
-bool qt_ir_nodes_d2_mirrored(qt_ir_node_t *a, qt_ir_node_t *b)
-{
-    if (a == NULL || b == NULL)
-    {
-        return a == b;
-    }
-
-    return qt_ir_nodes_d2_mirrored(a->quads[QT_QUAD_NE], b->quads[QT_QUAD_SW]) &&
-           qt_ir_nodes_d2_mirrored(a->quads[QT_QUAD_SW], b->quads[QT_QUAD_NE]) &&
-           qt_ir_nodes_d2_mirrored(a->quads[QT_QUAD_NW], b->quads[QT_QUAD_NW]) &&
-           qt_ir_nodes_d2_mirrored(a->quads[QT_QUAD_SE], b->quads[QT_QUAD_SE]);
-}
-
-
 
 void qt_node_print_tree(qt_ir_node_t *node, uint8_t tabs, qt_quad_e quad)
 {
@@ -427,13 +624,30 @@ void qt_ir_print_tree(qt_ir_t *ir)
 
 void qt_ir_print_img(qt_ir_t *ir)
 {
-    uint16_t width = 1 << ir->r;
-
-    for (uint16_t y = 0; y < width; y++)
+    for (uint16_t y = 0; y < ir->h; y++)
     {
-        for (uint16_t x = 0; x < width; x++)
+        for (uint16_t x = 0; x < ir->w; x++)
         {
             if (qt_ir_get_val(ir, x, y))
+            {
+                printf("⬜");
+            }
+            else
+            {
+                printf("⬛");
+            }
+        }
+        printf("\n");
+    }
+}
+
+void qt_ir_node_print_img(qt_ir_node_t *node, uint8_t r)
+{
+    for (uint16_t y = 0; y < (1 << r); y++)
+    {
+        for (uint16_t x = 0; x < (1 << r); x++)
+        {
+            if (qt_ir_node_get_val(node, x, y, r))
             {
                 printf("⬜");
             }
@@ -450,7 +664,7 @@ typedef struct
 {
     size_t byte_cnt;
     uint8_t data[];
-} qt_comp_t;
+} qt_lin_t;
 
 void qt_comp_traverse(uint8_t *d, bool left_nibble, size_t right_nodes_cnt, int32_t x, int32_t y, int32_t half_w)
 {
@@ -462,7 +676,7 @@ void qt_comp_traverse(uint8_t *d, bool left_nibble, size_t right_nodes_cnt, int3
     }
 }
 
-void qt_comp_decompress(qt_comp_t *qtc, uint8_t **res, size_t res_n)
+void qt_comp_decompress(qt_lin_t *qtc, uint8_t **res, size_t res_n)
 {
     size_t node_i = 0;
 
@@ -492,46 +706,17 @@ void qt_comp_decompress(qt_comp_t *qtc, uint8_t **res, size_t res_n)
     }
 }
 
-uint8_t test_img[] = {0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100};
-
-uint8_t test_img2[] = {0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001,
-                       0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100,
-                       0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100,
-                       0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001,
-                       0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100,
-                       0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001,
-                       0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001,
-                       0b10000001, 0b10000001, 0b01000010, 0b00111100, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b00111100, 0b01000010, 0b10000001, 0b10000001, 0b10000001, 0b10000001, 0b01000010, 0b00111100};
-
-typedef union
-{
-    uint8_t p[2];
-    uint16_t word;
-} img_4x4_t;
-
-bool reflect_h(img_4x4_t *img)
-{
-    uint16_t w = img->word;
-    return ((w & 0x8888) >> 4 == (w & 0x1111)) && ((w & 0x4444) >> 1 == (w & 0x2222));
-}
-
-bool reflect_v(img_4x4_t *img)
-{
-    uint16_t w = img->word;
-    return ((w & 0xF000) >> 12 == (w & 0x000F)) && ((w & 0x0F00) >> 4 == (w & 0x00F0));
-}
-
-bool reflect_d(img_4x4_t *img)
-{
-    uint16_t w = img->word;
-    return ((w & 0x0100) >> 1 == (w & 0x0080)) && ((w & 0x0200) >> 2);
-}
-
 int main()
 {
-    //    uint8_t *qt = lqt_from_bitmap(test_img2, 5);
-    //    lqt_print(qt);
-    qt_ir_t *ir = qt_ir_create(test_img2, 5);
-    qt_ir_print_tree(ir);
-    qt_ir_print_img(ir);
+    qt_ir_t *ir = qt_ir_from_bmp(globe_xxs_bits, GLOBE_XXS_WIDTH, GLOBE_XXS_HEIGHT);
+
+    printf("r: %u\n", ir->r);
+    printf("Nodes: %lu\n", qt_ir_nodes_count(ir->root));
+
+    qt_ir_compress(ir);
+    printf("Nodes: %lu\n", qt_ir_nodes_count(ir->root));
+    printf("%f\n", (GLOBE_XXS_WIDTH * GLOBE_XXS_HEIGHT / 8) / ((double)qt_ir_nodes_count(ir->root) / 2));
+
+    lcqt_t *lcqt = qt_ir_to_lcqt(ir);
+    printf("cr: %f\n", (GLOBE_XXS_WIDTH * GLOBE_XXS_HEIGHT / 8) / ((double)lcqt->data_size));
 }

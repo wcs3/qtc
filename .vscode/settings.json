@@ -4,6 +4,9 @@
         "array": "c",
         "string": "c",
         "string_view": "c",
-        "ranges": "c"
+        "ranges": "c",
+        "stdlib.h": "c",
+        "errno.h": "c",
+        "cstddef": "c"
     }
 }
