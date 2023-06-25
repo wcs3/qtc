@@ -148,36 +148,42 @@ lqt_t *lcqt_decompress(lcqt_t *lcqt)
 
     bitstream_write_array(&lcqt_bits, lcqt->data, lcqt->data_size);
 
+    // get the root node of the compressed tree
     bitstream_write_bits(&lqt_bits, bitstream_read_bits(lcqt_bits, 4), 4);
 
-    while (lcqt_bits->read_index < lcqt_bits->write_index || lcqt_bits->read_bit_pos < lcqt_bits->write_bit_pos)
+    // calc the node count of a perfect quad tree with height r
+    // # nodes = (4^r - 1) / 3
+    size_t decomp_node_cnt = ((1 << (2 * lcqt->r + 2)) - 1) / 3;
+
+    while (lqt_bits->write_index * 2 + (lqt_bits->write_bit_pos == 4) < decomp_node_cnt)
     {
         uint8_t parent = bitstream_read_bits(lqt_bits, 4);
 
-        if (parent == 0b0000)
+        uint16_t children = 0x0000;
+
+        if (parent != 0)
         {
-            bitstream_write_bits(&lqt_bits, 0, 16);
-        }
-        else
-        {
-            uint8_t nw = bitstream_read_bits(lqt_bits, 4);
-            if (nw == 0b0000 && parent == 0b1111)
+            if (bitstream_peek_bits(lcqt_bits, 4) == 0b0000)
             {
-                for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
-                {
-                    bitstream_write_bits(&lqt_bits, 0xFFFF, 16);
-                }
+                children = 0xFFFF;
+                (void)bitstream_read_bits(lcqt_bits, 4);
             }
             else
             {
-                bitstream_write_bits(&lqt_bits, nw, 4);
-                for (qt_quad_e quad = 1; quad < QT_QUAD_cnt; quad++)
+                for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
                 {
-                    bitstream_write_bits(&lqt_bits, bitstream_read_bits(lcqt_bits, 4), 4);
+                    if ((parent >> quad) & 0x1)
+                    {
+                        children |= bitstream_read_bits(lcqt_bits, 4) << (quad * 4);
+                    }
                 }
             }
         }
+
+        bitstream_write_bits(&lqt_bits, children, 16);
     }
+
+    
 }
 
 void qt_ir_node_delete(qt_ir_node_t *node)

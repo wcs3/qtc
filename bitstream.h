@@ -78,6 +78,26 @@ static inline uint32_t bitstream_read_bits(bitstream_t *bs, uint8_t bit_cnt)
     return bits;
 }
 
+static inline uint32_t bitstream_peek_bits(bitstream_t *bs, uint8_t bit_cnt)
+{
+    uint32_t bits = bitstream_read_bits(bs, bit_cnt);
+
+    // reset to position before read
+    while(bit_cnt) {
+        if(bs->read_bit_pos != 0) {
+           bs->read_bit_pos--; 
+           
+        }
+        else {
+            bs->read_index--;
+            bs->read_bit_pos = 7;
+        }
+        bit_cnt--; 
+    }
+
+    return bits;
+}
+
 static inline void bitstream_set_write_pos(bitstream_t *bs, size_t byte_index, uint8_t bit_pos)
 {
     assert(byte_index < bs->alloced && bit_pos < 8);
