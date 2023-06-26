@@ -8,14 +8,6 @@
 
 typedef struct
 {
-    size_t alloced;
-    size_t index;
-    uint8_t bit_pos;
-    uint8_t data[];
-} bitstream_writer_t;
-
-typedef struct
-{
     size_t write_index;
     uint8_t write_bit_pos;
 

@@ -4,8 +4,8 @@
 #include <stdio.h>
 
 #include "vla.h"
-#include "assets.h"
-#include "bitstream.h"
+#include "test_assets/assets.h"
+#include "qtc.h"
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_BINARY(byte)       \
@@ -24,6 +24,24 @@
         ((nibble)&0x04 ? '1' : '0'), \
         ((nibble)&0x02 ? '1' : '0'), \
         ((nibble)&0x01 ? '1' : '0')
+
+#define GET_NIBBLE(p, l) ((*(p) >> ((l)*4)) & 0x0F)
+#define SET_NIBBLE(p, l, n)           \
+    do                                \
+    {                                 \
+        *(p) &= ~(0xF << ((l)*4));    \
+        *(p) |= ((n)&0xF) << ((l)*4); \
+    } while (0)
+
+#define ADVANCE_NIBBLE(p, l) \
+    do                       \
+    {                        \
+        if (l)               \
+        {                    \
+            (p)++;           \
+        }                    \
+        l = !l;              \
+    } while (0)
 
 typedef enum
 {
@@ -60,6 +78,44 @@ uint32_t interleave_u16_zeroes(uint16_t u16)
 uint32_t xy_to_morton(uint16_t x, uint16_t y)
 {
     return interleave_u16_zeroes(x) | (interleave_u16_zeroes(y) << 1);
+}
+
+uint16_t get_u32_even_bits(uint32_t u32)
+{
+    u32 = u32 & 0x55555555;
+    u32 = (u32 | (u32 >> 1)) & 0x33333333;
+    u32 = (u32 | (u32 >> 2)) & 0x0F0F0F0F;
+    u32 = (u32 | (u32 >> 4)) & 0x00FF00FF;
+    u32 = (u32 | (u32 >> 8)) & 0x0000FFFF;
+    return (uint16_t)u32;
+}
+
+void morton_to_xy(uint32_t morton, uint16_t *x, uint16_t *y)
+{
+    *x = get_u32_even_bits(morton);
+    *y = get_u32_even_bits(morton >> 1);
+}
+
+void morton_inc_x(uint32_t *morton)
+{
+    uint32_t xsum = (*morton | 0xAAAAAAAA) + 1;
+    *morton = (xsum & 0x55555555) | (*morton & 0xAAAAAAAA);
+}
+
+void morton_set_zero_x(uint32_t *morton)
+{
+    *morton &= ~(0x55555555);
+}
+
+void morton_inc_y(uint32_t *morton)
+{
+    uint32_t ysum = (*morton | 0x55555555) + 2;
+    *morton = (ysum & 0xAAAAAAAA) | (*morton & 0x55555555);
+}
+
+void morton_set_zero_y(uint32_t *morton)
+{
+    *morton &= ~(0xAAAAAAAA);
 }
 
 typedef struct qtc_ir_node_t
@@ -120,9 +176,6 @@ lcqt_t *qt_ir_to_lcqt(qtc_ir_t *ir)
     bitstream_writer_t *bs = bitstream_writer_create();
     assert(bs != NULL);
 
-    bool left_nib = false;
-    uint8_t byte = 0;
-
     uint8_t r = ir->r;
 
     for (uint8_t lvl = 0; lvl < r; lvl++)
@@ -141,49 +194,161 @@ lcqt_t *qt_ir_to_lcqt(qtc_ir_t *ir)
     return lcqt;
 }
 
-lqt_t *lcqt_decompress(lcqt_t *lcqt)
+void nibble_array_write(uint8_t *p, size_t i, uint8_t val)
 {
-    bitstream_t *lqt_bits = bitstream_create();
-    bitstream_t *lcqt_bits = bitstream_create();
+    p[i / 2] &= ~(0xF << ((i & 1) * 4));
+    p[i / 2] |= (val & 0xF) << ((i & 1) * 4);
+}
 
-    bitstream_write_array(&lcqt_bits, lcqt->data, lcqt->data_size);
+uint8_t nibble_array_read(uint8_t *p, size_t i)
+{
+    return (p[i / 2] >> ((i & 1) * 4));
+}
 
-    // get the root node of the compressed tree
-    bitstream_write_bits(&lqt_bits, bitstream_read_bits(lcqt_bits, 4), 4);
-
-    // calc the node count of a perfect quad tree with height r
-    // # nodes = (4^r - 1) / 3
-    size_t decomp_node_cnt = ((1 << (2 * lcqt->r + 2)) - 1) / 3;
-
-    while (lqt_bits->write_index * 2 + (lqt_bits->write_bit_pos == 4) < decomp_node_cnt)
+/**
+ * Fill a subtree of a linear quadtree with 1s.
+ *
+ * @param qt pointer to quadtree array
+ * @param qt_n node count of whole quadtree
+ * @param node_i index of subtree's root node
+ */
+static void fill_ones(uint8_t *qt, size_t qt_n, size_t st_i)
+{
+    size_t nodes_to_fill = 1;
+    while (st_i < qt_n)
     {
-        uint8_t parent = bitstream_read_bits(lqt_bits, 4);
-
-        uint16_t children = 0x0000;
-
-        if (parent != 0)
+        for (size_t i = 0; i < nodes_to_fill; i++)
         {
-            if (bitstream_peek_bits(lcqt_bits, 4) == 0b0000)
+            nibble_array_write(qt, st_i + i, 0xF);
+        }
+        st_i *= 4;
+        nodes_to_fill *= 4;
+    }
+}
+
+void qtc_to_qt(uint8_t const *const qtc, uint8_t r, uint8_t const **qt, size_t *qt_n)
+{
+    // calc the number of nodes in a perfect quad tree with height r
+    // # nodes = (4^r - 1) / 3
+    size_t qt_node_cnt = ((1 << (2 * r + 2)) - 1) / 3;
+
+    // allocate space for the decompressed quad tree
+    *qt = malloc((qt_node_cnt + 1) / 2);
+    assert(*qt != NULL);
+
+    memset(*qt, 0, qt_node_cnt);
+
+    size_t qt_parent_i = 0;
+    size_t qt_child_i = 0;
+    size_t qtc_node_i = 0;
+
+    // copy the first node of the compressed quad tree (the root)
+    nibble_array_write(*qt, qt_child_i++, nibble_array_read(qtc, qtc_node_i++));
+
+    while (qt_child_i < qt_node_cnt)
+    {
+        // read one node
+        uint8_t parent = nibble_array_read(*qt, qt_parent_i);
+
+        if (parent != 0 && nibble_array_read(qtc, qtc_node_i) == 0b0000)
+        {
+            qtc_node_i++;
+
+            fill_ones(*qt, qt_node_cnt, qt_parent_i);
+        }
+        else
+        {
+            // write 4 nodes
+            for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
             {
-                children = 0xFFFF;
-                (void)bitstream_read_bits(lcqt_bits, 4);
-            }
-            else
-            {
-                for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+                if ((parent >> quad) & 0x1 && nibble_array_read(qt, qt_child_i) == 0)
                 {
-                    if ((parent >> quad) & 0x1)
-                    {
-                        children |= bitstream_read_bits(lcqt_bits, 4) << (quad * 4);
-                    }
+                    nibble_array_write(*qt, qt_child_i, nibble_array_read(qtc, qtc_node_i++));
                 }
+                qt_child_i++;
             }
         }
+        qt_parent_i++;
+    }
+}
 
-        bitstream_write_bits(&lqt_bits, children, 16);
+void qtc_decode(uint8_t *qtc, uint16_t w, uint16_t h, uint8_t **out, size_t *out_n)
+{
+    uint8_t r = 0;
+    while ((1 << (r + 1)) < w)
+    {
+        r++;
     }
 
-    
+    while ((1 << (r + 1)) < h)
+    {
+        r++;
+    }
+
+    // calc the number of nodes in a perfect quad tree with height r
+    // # nodes = (4^r - 1) / 3
+    size_t qt_node_cnt = ((1 << (2 * r + 2)) - 1) / 3;
+
+    // allocate space for the decompressed quad tree
+    uint8_t *qt = malloc((qt_node_cnt + 1) / 2);
+    memset(qt, 0, qt_node_cnt);
+
+    size_t qt_rd_i = 0;
+    size_t qt_wr_i = 0;
+    size_t qtc_rd_i = 0;
+
+    // copy the first node of the compressed quad tree (the root)
+    nibble_array_write(qt, nibble_array_read(qtc, qtc_rd_i++), qt_wr_i++);
+
+    while (qt_wr_i < qt_node_cnt)
+    {
+        // read one node
+        uint8_t parent = nibble_array_read(qt, qt_rd_i);
+
+        if (parent != 0 && nibble_array_read(qtc, qtc_rd_i) == 0b0000)
+        {
+            qtc_rd_i++;
+
+            fill_ones(qt, qt_rd_i, qt_node_cnt);
+        }
+        else
+        {
+            // write 4 nodes
+            for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
+            {
+                if ((parent >> quad) & 0x1 && nibble_array_read(qt, qt_wr_i) == 0)
+                {
+                    nibble_array_write(qt, qt_wr_i, nibble_array_read(qtc, qtc_rd_i++));
+                }
+                qt_wr_i++;
+            }
+        }
+        qt_rd_i++;
+    }
+
+    uint16_t w_bytes = (w + 7) / 8;
+    *out_n = h * w_bytes;
+
+    *out = malloc(*out_n);
+    memset(*out, 0, *out_n);
+    uint8_t *row = *out;
+
+    uint32_t morton = 0;
+
+    for (uint16_t y = 0; y < h; y++, morton_inc_y(&morton))
+    {
+        morton_set_zero_x(&morton);
+        for (uint16_t x = 0; x < w; x++, morton_inc_x(&morton))
+        {
+            qt_quad_e quad = morton & 3;
+            bool set = (nibble_array_read(qt, qt_rd_i + morton / 4) >> quad) & 0x1;
+            row[x / 8] |= set << (x & 7);
+        }
+
+        row += w_bytes;
+    }
+
+    free(qt);
 }
 
 void qt_ir_node_delete(qtc_ir_node_t *node)
