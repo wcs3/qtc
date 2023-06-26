@@ -6,7 +6,7 @@
 #include "morton.h"
 #include "test_assets/assets.h"
 #include "qtc.h"
-
+ 
 typedef enum
 {
     QT_DIR_WEST = 0x0,
@@ -213,40 +213,6 @@ void qt_ir_node_delete(qt_ir_node_t *node)
     free(node);
 }
 
-bool qt_ir_get_val(qt_ir_node_t *node, uint16_t x, uint16_t y, uint8_t r)
-{
-    if (r == 0)
-    {
-        return true;
-    }
-
-    bool all_null = true;
-    for (qt_quad_e quad = 0; quad < QT_QUAD_cnt; quad++)
-    {
-        if (node->quads[quad] != NULL)
-        {
-            all_null = false;
-            break;
-        }
-    }
-
-    if (all_null)
-    {
-        return true;
-    }
-
-    r--;
-
-    qt_quad_e quad = ((x >> r) & 0x1) | (((y >> r) & 0x1) << 1);
-
-    if (node->quads[quad])
-    {
-        return qt_ir_get_val(node->quads[quad], x, y, r);
-    }
-
-    return false;
-}
-
 size_t qt_ir_nodes_count(qt_ir_node_t *node)
 {
     if (node == NULL)
@@ -394,25 +360,6 @@ bool qt_ir_compress(qt_ir_node_t *node, uint8_t r)
     }
 
     return all_set;
-}
-
-void qt_ir_print_img(qt_ir_node_t *node, uint8_t r)
-{
-    for (uint16_t y = 0; y < (1 << r); y++)
-    {
-        for (uint16_t x = 0; x < (1 << r); x++)
-        {
-            if (qt_ir_get_val(node, x, y, r))
-            {
-                printf("⬜");
-            }
-            else
-            {
-                printf("⬛");
-            }
-        }
-        printf("\n");
-    }
 }
 
 int main()
