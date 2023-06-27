@@ -3,12 +3,12 @@
 static uint32_t interleave_zeroes_u16(uint16_t u16);
 static uint16_t get_even_bits_u32(uint32_t u32);
 
-uint32_t morton_from_xy(uint16_t x, uint16_t y)
+uint32_t morton_encode(uint16_t x, uint16_t y)
 {
     return interleave_zeroes_u16(x) | (interleave_zeroes_u16(y) << 1);
 }
 
-void morton_to_xy(uint32_t morton, uint16_t *x, uint16_t *y)
+void morton_decode(uint32_t morton, uint16_t *x, uint16_t *y)
 {
     *x = get_even_bits_u32(morton);
     *y = get_even_bits_u32(morton >> 1);
