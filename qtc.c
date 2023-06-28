@@ -213,15 +213,25 @@ void qtir_node_delete(qtir_node_t *node)
     free(node);
 }
 
-void qtir_from_pix(const uint8_t *pix, uint16_t pix_w, uint16_t pix_h, qtir_node_t **root, uint8_t *height)
+/**
+ * Convert contiguous array of pixels to quad tree intermediate representation
+ */
+void pix_to_qtir(const uint8_t *pix, uint16_t w, uint16_t h, qtir_node_t **root, uint8_t *height)
+{
+}
+
+/**
+ * Convert array of pixels in byte-padded rows to quad tree intermediate representation
+ */
+void pix_bpr_to_qtir(const uint8_t *pix, uint16_t w, uint16_t h, qtir_node_t **root, uint8_t *height)
 {
     uint8_t r = 0;
-    while ((1 << r) < pix_w)
+    while ((1 << r) < w)
     {
         r++;
     }
 
-    while ((1 << r) < pix_h)
+    while ((1 << r) < h)
     {
         r++;
     }
@@ -231,16 +241,18 @@ void qtir_from_pix(const uint8_t *pix, uint16_t pix_w, uint16_t pix_h, qtir_node
 
     qtir_node_t **parent_lvl_nodes = malloc(sizeof(qtir_node_t *) * leaf_cnt);
 
-    uint16_t w_bytes = (pix_w + 7) / 8;
+    uint16_t w_bytes = (w + 7) / 8;
     const uint8_t *row = pix;
 
+    uint32_t morton = 0;
+
     // populate leaves
-    for (uint16_t y = 0; y < qt_w; y++)
+    for (uint16_t y = 0; y < qt_w; y++, morton_inc_y(&morton), morton_set_zero_x(&morton))
     {
-        for (uint16_t x = 0; x < qt_w; x++)
+        for (uint16_t x = 0; x < qt_w; x++, morton_inc_x(&morton))
         {
             qtir_node_t *node = NULL;
-            if (x < pix_w && y < pix_h)
+            if (x < w && y < h)
             {
                 if ((row[x >> 3] >> (x & 7)) & 0x1)
                 {
@@ -251,15 +263,13 @@ void qtir_from_pix(const uint8_t *pix, uint16_t pix_w, uint16_t pix_h, qtir_node
                     }
                 }
             }
-
-            uint32_t pix_mc = morton_encode(x, y);
-            parent_lvl_nodes[pix_mc] = node;
+            parent_lvl_nodes[morton] = node;
         }
 
         row += w_bytes;
     }
 
-    uint32_t chi_lvl_width = leaf_cnt;
+    uint32_t parent_lvl_width = leaf_cnt;
 
     // build quad tree from leaves up to root
     while (parent_lvl_width > 1)
