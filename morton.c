@@ -1,59 +1,59 @@
 #include "morton.h"
 
-static uint32_t interleave_zeroes_u16(uint16_t u16);
-static uint16_t get_even_bits_u32(uint32_t u32);
+static u32 interleave_zeroes_u16(u16 x);
+static u16 get_even_bits_u32(u32 x);
 
-uint32_t morton_encode(uint16_t x, uint16_t y)
+u32 morton_encode(u16 x, u16 y)
 {
     return interleave_zeroes_u16(x) | (interleave_zeroes_u16(y) << 1);
 }
 
-void morton_decode(uint32_t morton, uint16_t *x, uint16_t *y)
+void morton_decode(u32 morton, u16 *x, u16 *y)
 {
     *x = get_even_bits_u32(morton);
     *y = get_even_bits_u32(morton >> 1);
 }
 
-void morton_inc_x(uint32_t *morton)
+void morton_inc_x(u32 *morton)
 {
-    uint32_t xsum = (*morton | 0xAAAAAAAA) + 1;
+    u32 xsum = (*morton | 0xAAAAAAAA) + 1;
     *morton = (xsum & 0x55555555) | (*morton & 0xAAAAAAAA);
 }
 
-void morton_set_zero_x(uint32_t *morton)
+void morton_set_zero_x(u32 *morton)
 {
     *morton &= ~(0x55555555);
 }
 
-void morton_inc_y(uint32_t *morton)
+void morton_inc_y(u32 *morton)
 {
-    uint32_t ysum = (*morton | 0x55555555) + 2;
+    u32 ysum = (*morton | 0x55555555) + 2;
     *morton = (ysum & 0xAAAAAAAA) | (*morton & 0x55555555);
 }
 
-void morton_set_zero_y(uint32_t *morton)
+void morton_set_zero_y(u32 *morton)
 {
     *morton &= ~(0xAAAAAAAA);
 }
 
-static uint32_t interleave_zeroes_u16(uint16_t u16)
+static u32 interleave_zeroes_u16(u16 x)
 {
-    uint32_t u32 = u16;
+    u32 y = x;
 
-    u32 = (u32 | (u32 << 8)) & 0b00000000111111110000000011111111;
-    u32 = (u32 | (u32 << 4)) & 0b00001111000011110000111100001111;
-    u32 = (u32 | (u32 << 2)) & 0b00110011001100110011001100110011;
-    u32 = (u32 | (u32 << 1)) & 0b01010101010101010101010101010101;
+    y = (y | (y << 8)) & 0b00000000111111110000000011111111;
+    y = (y | (y << 4)) & 0b00001111000011110000111100001111;
+    y = (y | (y << 2)) & 0b00110011001100110011001100110011;
+    y = (y | (y << 1)) & 0b01010101010101010101010101010101;
 
-    return u32;
+    return y;
 }
 
-static uint16_t get_even_bits_u32(uint32_t u32)
+static u16 get_even_bits_u32(u32 x)
 {
-    u32 = u32 & 0x55555555;
-    u32 = (u32 | (u32 >> 1)) & 0x33333333;
-    u32 = (u32 | (u32 >> 2)) & 0x0F0F0F0F;
-    u32 = (u32 | (u32 >> 4)) & 0x00FF00FF;
-    u32 = (u32 | (u32 >> 8)) & 0x0000FFFF;
-    return (uint16_t)u32;
+    x = x & 0b01010101010101010101010101010101;
+    x = (x | (x >> 1)) & 0b00110011001100110011001100110011;
+    x = (x | (x >> 2)) & 0b00001111000011110000111100001111;
+    x = (x | (x >> 4)) & 0b00000000111111110000000011111111;
+    x = (x | (x >> 8)) & 0b00000000000000001111111111111111;
+    return (u16)x;
 }

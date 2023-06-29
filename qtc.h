@@ -1,7 +1,7 @@
 #ifndef __QTC_H__
 #define __QTC_H__
 
-#include <stdint.h>
+#include "types.h"
 
 
 
