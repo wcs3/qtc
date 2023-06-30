@@ -10,6 +10,8 @@
         "cstddef": "c",
         "assets.h": "c",
         "types.h": "c",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "qtc.h": "c",
+        "stdio.h": "c"
     }
 }

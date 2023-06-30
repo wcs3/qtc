@@ -41,7 +41,7 @@ static inline u8 na_read(u8 *na, u32 i)
  * @param i position of bit. Bit positions are as follows
  * @return true if set, false if not
 */
-static inline bool bit_is_set(u8 *p, u16 i)
+static inline bool bit_is_set(const u8 *p, u16 i)
 {
     u16 byte_i = i / 8;
     u8 shift = i % 8;

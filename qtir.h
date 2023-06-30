@@ -66,7 +66,7 @@ struct qtir_node
 /**
  * Convert array of pixels in byte-padded rows to quad tree intermediate representation
  */
-void qtir_from_pix(u8 *pix, u16 w, u16 h, qtir_node **ir, u8 *height);
+void qtir_from_pix(const u8 *pix, u16 w, u16 h, qtir_node **ir, u8 *height);
 
 /**
  * Insert compression codes into intermediate representation

@@ -1,10 +1,11 @@
 #include "qtir.h"
+#include "utils.h"
 
 static u8 node_to_nibble(qtir_node *node);
 static u32 count_int_nodes(qtir_node *node, u8 r);
 static void linearize_lvl(qtir_node *node, u8 lvl, u8 *qtl, u32 *i);
 
-void qtir_from_pix(u8 *pix, u16 w, u16 h, qtir_node **ir, u8 *height)
+void qtir_from_pix(const u8 *pix, u16 w, u16 h, qtir_node **ir, u8 *height)
 {
     u8 r = 0;
     while ((1 << r) < w)
@@ -23,7 +24,7 @@ void qtir_from_pix(u8 *pix, u16 w, u16 h, qtir_node **ir, u8 *height)
     qtir_node **pnodes = malloc(sizeof(qtir_node *) * leaf_cnt);
 
     u16 w_bytes = (w + 7) / 8;
-    u8 *pix_row = pix;
+    const u8 *pix_row = pix;
 
     u32 morton = 0;
 
@@ -210,6 +211,26 @@ void calc_code(qtir_node *node)
         {
             code = COMP_CODE_XYYX;
         }
+        else if (nw == ne && ne == sw && sw == se)
+        {
+            bool all_fill = nw == COMP_CODE_FILL;
+            for (u8 q = 0; q < QUAD_Cnt && all_fill; q++)
+            {
+                if (!node->quads[q]->compressed)
+                {
+                    all_fill = false;
+                }
+            }
+
+            if (all_fill)
+            {
+                code = COMP_CODE_FILL;
+            }
+            else
+            {
+                code = COMP_CODE_XXXX;
+            }
+        }
     }
 
     if (code != COMP_CODE_NONE)
@@ -309,12 +330,12 @@ static void linearize_lvl(qtir_node *node, u8 lvl, u8 *qtl, u32 *i)
 
     if (lvl == 0)
     {
-        u8 nib = node_to_nibble(node);
-        na_write(qtl, *i, nib);
+        na_write(qtl, *i, node->code);
         (*i)++;
     }
     else if (lvl == 1 && node->compressed)
     {
+        // in parent of target level and compressed
         na_write(qtl, *i, 0);
         (*i)++;
         switch (node->code)
