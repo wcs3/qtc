@@ -122,45 +122,106 @@ void qtir_delete(qtir_node *node)
     free(node);
 }
 
-u8 get_code(qtir_node *node)
+/**
+ * Calculate and the code for a given node
+ *
+ * @param node pointer to node
+ */
+void calc_code(qtir_node *node)
 {
+    u8 child_codes[4] = {COMP_CODE_NONE};
     u8 child_cnt = 0;
+
+    u8 base_code = COMP_CODE_Cnt;
+
     for (u8 q = 0; q < QUAD_Cnt; q++)
     {
         if (node->quads[q] != NULL)
         {
+            base_code |= 1 << q;
+            child_codes[q] = node->quads[q]->code;
             child_cnt++;
         }
     }
 
     u8 code = COMP_CODE_NONE;
 
+    // can only compress nodes with more than 2 children
     if (child_cnt > 2)
     {
-        u8 child_codes[4] = {0};
-        for (u8 q = 0; q < QUAD_Cnt; q++)
+        u8 nw = child_codes[QUAD_NW];
+        u8 ne = child_codes[QUAD_NE];
+        u8 sw = child_codes[QUAD_SW];
+        u8 se = child_codes[QUAD_SE];
+
+        if (ne == sw && sw == se)
         {
-            qtir_node *child = node->quads[q];
-            u8 child_code = COMP_CODE_NONE;
-            if (child != NULL)
+            if (nw == COMP_CODE_NONE)
             {
-                child_code = child->code;
-                if (child_code == COMP_CODE_NONE)
-                {
-                    for (u8 cq = 0; cq < QUAD_Cnt; cq++)
-                    {
-                        if (child->quads[cq] != NULL)
-                        {
-                            child_code |= 1 << cq;
-                        }
-                    }
-                }
+                code = COMP_CODE_XXX0;
             }
-            child_codes[q] = child_code;
+            else
+            {
+                code = COMP_CODE_XXXY;
+            }
+        }
+        else if (nw == sw && sw == se)
+        {
+            if (ne == COMP_CODE_NONE)
+            {
+                code = COMP_CODE_XX0X;
+            }
+            else
+            {
+                code = COMP_CODE_XXYX;
+            }
+        }
+        else if (nw == ne && ne == se)
+        {
+            if (sw == COMP_CODE_NONE)
+            {
+                code = COMP_CODE_X0XX;
+            }
+            else
+            {
+                code = COMP_CODE_XYXX;
+            }
+        }
+        else if (nw == ne && ne == sw)
+        {
+            if (se == COMP_CODE_NONE)
+            {
+                code = COMP_CODE_0XXX;
+            }
+            else
+            {
+                code = COMP_CODE_YXXX;
+            }
+        }
+        else if (nw == ne && sw == se)
+        {
+            code = COMP_CODE_XXYY;
+        }
+        else if (nw == sw && ne == se)
+        {
+            code = COMP_CODE_XYXY;
+        }
+        else if (nw == se && ne == sw)
+        {
+            code = COMP_CODE_XYYX;
         }
     }
 
-    return code;
+    if (code != COMP_CODE_NONE)
+    {
+        node->code = code;
+        node->compressed = true;
+    }
+    else
+    {
+        node->code = base_code;
+        node->compressed = false;
+    }
 }
 
 void qtir_compress(qtir_node *node, u8 r)
@@ -172,37 +233,29 @@ void qtir_compress(qtir_node *node, u8 r)
 
     if (r == 0)
     {
+        node->compressed = true;
         node->code = COMP_CODE_FILL;
         return;
     }
 
-    bool all_set = true;
-
     for (u8 q = 0; q < QUAD_Cnt; q++)
     {
         qtir_compress(node->quads[q], r - 1);
-        if (node->quads[q]->code != COMP_CODE_FILL)
-        {
-            all_set = false;
-        }
     }
 
-    if (all_set)
+    calc_code(node);
+
+    if (node->compressed && node->code == COMP_CODE_FILL)
     {
         for (u8 q = 0; q < QUAD_Cnt; q++)
         {
             qtir_delete(node->quads[q]);
             node->quads[q] = NULL;
         }
-
-        node->code = COMP_CODE_FILL;
-    }
-    else
-    {
     }
 }
 
-void qtir_linearize(qtir_node *ir, u8 r, u8 **qtl, u32 *qtl_n)
+void qtir_linearize(qtir_node *ir, u8 r, u8 **qtl, u32 *qtl_size)
 {
     u32 nibble_cnt = count_int_nodes(ir, r);
 
@@ -216,7 +269,7 @@ void qtir_linearize(qtir_node *ir, u8 r, u8 **qtl, u32 *qtl_n)
         linearize_lvl(ir, lvl, *qtl, &qtl_i);
     }
 
-    *qtl_n = byte_cnt;
+    *qtl_size = byte_cnt;
 }
 
 static u8 node_to_nibble(qtir_node *node)
@@ -260,11 +313,80 @@ static void linearize_lvl(qtir_node *node, u8 lvl, u8 *qtl, u32 *i)
         na_write(qtl, *i, nib);
         (*i)++;
     }
+    else if (lvl == 1 && node->compressed)
+    {
+        na_write(qtl, *i, 0);
+        (*i)++;
+        switch (node->code)
+        {
+        case COMP_CODE_FILL:
+            break;
+
+        case COMP_CODE_XXXY:
+            na_write(qtl, *i, node->quads[QUAD_NW]);
+            (*i)++;
+        case COMP_CODE_XXX0:
+            na_write(qtl, *i, node->quads[QUAD_NE]);
+            (*i)++;
+            break;
+
+        case COMP_CODE_XXYX:
+            na_write(qtl, *i, node->quads[QUAD_NE]);
+            (*i)++;
+        case COMP_CODE_XX0X:
+            na_write(qtl, *i, node->quads[QUAD_SW]);
+            (*i)++;
+            break;
+
+        case COMP_CODE_XYXX:
+            na_write(qtl, *i, node->quads[QUAD_SW]);
+            (*i)++;
+        case COMP_CODE_X0XX:
+            na_write(qtl, *i, node->quads[QUAD_SE]);
+            (*i)++;
+            break;
+
+        case COMP_CODE_YXXX:
+            na_write(qtl, *i, node->quads[QUAD_SE]);
+            (*i)++;
+        case COMP_CODE_0XXX:
+            na_write(qtl, *i, node->quads[QUAD_NW]);
+            (*i)++;
+            break;
+
+        case COMP_CODE_XXYY:
+            na_write(qtl, *i, node->quads[QUAD_NW]);
+            (*i)++;
+            na_write(qtl, *i, node->quads[QUAD_SW]);
+            (*i)++;
+            break;
+
+        case COMP_CODE_XYXY:
+            na_write(qtl, *i, node->quads[QUAD_NW]);
+            (*i)++;
+            na_write(qtl, *i, node->quads[QUAD_NE]);
+            (*i)++;
+            break;
+        case COMP_CODE_XYYX:
+            na_write(qtl, *i, node->quads[QUAD_NE]);
+            (*i)++;
+            na_write(qtl, *i, node->quads[QUAD_NW]);
+            (*i)++;
+            break;
+
+        case COMP_CODE_XXXX:
+            na_write(qtl, *i, node->quads[QUAD_NW]);
+            (*i)++;
+            break;
+        default:
+            break;
+        }
+    }
     else
     {
         for (u8 q = 0; q < QUAD_Cnt; q++)
         {
-            linearize_lvl(node->quads[q], qtl, lvl - 1, i);
+            linearize_lvl(node->quads[q], lvl - 1, qtl, i);
         }
     }
 }

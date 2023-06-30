@@ -15,6 +15,13 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
-#define QUAD_Cnt 4
+enum
+{
+    QUAD_NW = 0,
+    QUAD_NE,
+    QUAD_SW,
+    QUAD_SE,
+    QUAD_Cnt
+};
 
 #endif // __TYPES_H__

@@ -8,6 +8,8 @@
         "stdlib.h": "c",
         "errno.h": "c",
         "cstddef": "c",
-        "assets.h": "c"
+        "assets.h": "c",
+        "types.h": "c",
+        "stdint.h": "c"
     }
 }

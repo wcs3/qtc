@@ -5,29 +5,53 @@
 
 enum
 {
-    COMP_CODE_NONE = 0b0000,
+    COMP_CODE_NONE = 0,
 
-    COMP_CODE_FILL = 0b1111,
+    // Subtree filled with 1111
+    COMP_CODE_FILL, // |1|1|
+                    // |1|1|
 
-    // X  in 3 children, 0000 in remaining
-    COMP_CODE_XXX0 = 0b1110,
-    COMP_CODE_XX0X = 0b1101,
-    COMP_CODE_X0XX = 0b1011,
-    COMP_CODE_0XXX = 0b0111,
+    // X in 3 children, 0000 in remaining
+    COMP_CODE_XXX0, // |0|X|
+                    // |X|X|
+
+    COMP_CODE_XX0X, // |X|0|
+                    // |X|X|
+
+    COMP_CODE_X0XX, // |X|X|
+                    // |0|X|
+
+    COMP_CODE_0XXX, // |X|X|
+                    // |X|0|
 
     // X in 3 children, Y in remaining
-    COMP_CODE_XXXY = 0b0001,
-    COMP_CODE_XXYX = 0b0010,
-    COMP_CODE_XYXX = 0b0100,
-    COMP_CODE_YXXX = 0b1000,
+    COMP_CODE_XXXY, // |Y|X|
+                    // |X|X|
+
+    COMP_CODE_XXYX, // |X|Y|
+                    // |X|X|
+
+    COMP_CODE_XYXX, // |X|X|
+                    // |Y|X|
+
+    COMP_CODE_YXXX, // |X|X|
+                    // |X|Y|
 
     // X in 2 children, Y in other 2
-    COMP_CODE_XXYY = 0b0011,
-    COMP_CODE_XYYX = 0b0110,
-    COMP_CODE_XYXY = 0b0101,
+    COMP_CODE_XXYY, // |Y|Y|
+                    // |X|X|
 
-    // X in all children
-    COMP_CODE_XXXX = 0b1111,
+    COMP_CODE_XYYX, // |X|Y|
+                    // |Y|X|
+
+    COMP_CODE_XYXY, // |Y|X|
+                    // |Y|X|
+
+    // X in children
+    COMP_CODE_XXXX, // |X|X|
+                    // |X|X|
+
+    COMP_CODE_Cnt
 };
 
 typedef struct qtir_node qtir_node;
@@ -35,6 +59,7 @@ typedef struct qtir_node qtir_node;
 struct qtir_node
 {
     qtir_node *quads[QUAD_Cnt];
+    bool compressed;
     u8 code;
 };
 
