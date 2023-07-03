@@ -14,7 +14,7 @@
 static u32 qt_calc_node_cnt(u8 r)
 {
     // # nodes = (4^r - 1) / 3
-    return ((1 << (2 * r + 2)) - 1) / 3;
+    return ((1 << (2 * r)) - 1) / 3;
 }
 
 static u8 qt_calc_r(u16 w, u16 h)
@@ -33,7 +33,141 @@ static u8 qt_calc_r(u16 w, u16 h)
     return r;
 }
 
-void qtc_encode(const u8 *pix, u16 w, u16 h, u8 **qtc, u32*qtc_size)
+void qt_set_rec(u8 *qt, u16 x, u16 y, u8 r, u32 i)
+{
+    u8 q = ((x >> r) & 0x1) | (((y >> r) & 0x1) << 1);
+    u8 v = na_read(qt, i);
+
+    na_write(qt, i, v | (1 << q));
+
+    if (r > 0)
+    {
+        qt_set_rec(qt, x, y, r - 1, 4 * i + q + 1);
+    }
+}
+
+void qt_set(u8 *qt, u16 x, u16 y, u8 r)
+{
+    qt_set_rec(qt, x, y, r, 0);
+}
+
+void qt_from_pix(const u8 *pix, u16 w, u16 h, u8 **qt, u32 *qt_size)
+{
+    u8 r = 0;
+    while ((1 << r) < w)
+    {
+        r++;
+    }
+
+    while ((1 << r) < h)
+    {
+        r++;
+    }
+
+    assert(r > 0);
+
+    u16 qt_w = (1 << r);
+    u32 leaf_cnt = qt_w * qt_w / 4;
+
+    u32 qt_nibble_cnt = qt_calc_node_cnt(r);
+    u32 qt_bytes = (qt_nibble_cnt + 1) / 2;
+
+    *qt = malloc(qt_bytes);
+    memset(*qt, 0, qt_bytes);
+
+    u16 w_bytes = (w + 7) / 8;
+    const u8 *pix_row = pix;
+
+    u32 leaves_i = qt_nibble_cnt - leaf_cnt;
+
+    for (u16 y = 0; y < h; y++)
+    {
+        for (u16 x = 0; x < w; x++)
+        {
+            if (bit_is_set(pix_row, x))
+            {
+                qt_set(qt, x, y, r);
+            }
+        }
+
+        pix_row += w_bytes;
+    }
+}
+
+bool qt_is_all_ones(u8 *qt, u32 qt_i, const u32 qt_n)
+{
+    bool all_set = na_read(qt, qt_i) == 0xF;
+
+    qt_i = 4 * qt_i + 1;
+
+    if (qt_i < qt_n)
+    {
+        for (u8 q = 0; q < QUAD_Cnt && all_set; q++)
+        {
+            all_set = all_set && qt_is_all_ones(qt, qt_i + q, qt_n);
+        }
+    }
+
+    return all_set;
+}
+
+void qt_fill_zeros(u8 *qt, u32 qt_i, const u32 qt_n)
+{
+    na_write(qt, qt_i, 0);
+
+    qt_i = 4 * qt_i + 1;
+
+    if (qt_i < qt_n)
+    {
+        for (u8 q = 0; q < QUAD_Cnt; q++)
+        {
+            qt_fill_zeros(qt, qt_i + q, qt_n);
+        }
+    }
+}
+
+void qt_compress(u8 *qt, u32 qt_size, u8 r, u8 **qtc, u8 *qtc_size)
+{
+    *qtc = malloc(qt_size);
+
+    u32 qt_n = qt_calc_node_cnt(r);
+
+    u32 p_i = 0;
+    u32 c_i = 0;
+    u32 qtc_i = 0;
+
+    na_write(*qtc, qtc_i++, na_read(qt, c_i++));
+
+    while (c_i < qt_n)
+    {
+        if (qt_is_all_ones(qt, p_i, qt_n))
+        {
+            na_write(*qtc, qtc_i++, 0);
+            for (u8 q = 0; q < QUAD_Cnt; q++)
+            {
+                qt_fill_zeros(qt, c_i++, qt_n);
+            }
+        }
+        else
+        {
+            u8 p = na_read(qt, p_i);
+            for (u8 q = 0; q < QUAD_Cnt; q++)
+            {
+                if (p & (1 << q))
+                {
+                    na_write(*qtc, qtc_i++, na_read(qt, c_i++));
+                }
+            }
+        }
+
+        p_i++;
+    }
+
+    *qtc_size = (qtc_i + 1) / 2;
+    *qtc = realloc(*qtc, *qtc_size);
+}
+
+void qtc_encode(const u8 *pix, u16 w, u16 h, u8 **qtc, u32 *qtc_size)
 {
     struct qtir_node *ir;
     u8 r;

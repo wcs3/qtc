@@ -3,9 +3,9 @@
 
 #include <stdio.h>
 
-void print_img(u8 *pix, u16 w, u16 h)
+void print_img(const u8 *pix, u16 w, u16 h)
 {
-    u8 *row = pix;
+    const u8 *row = pix;
     u16 w_byte = (w + 7) / 8;
 
     for (u16 y = 0; y < h; y++)
