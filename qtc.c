@@ -46,6 +46,7 @@ void qt_set_rec(u8 *qt, u16 x, u16 y, u8 r, u32 i)
     }
 }
 
+// Set pixel at (x,y) in a quad tree
 void qt_set(u8 *qt, u16 x, u16 y, u8 r)
 {
     qt_set_rec(qt, x, y, r, 0);
@@ -66,9 +67,6 @@ void qt_from_pix(const u8 *pix, u16 w, u16 h, u8 **qt, u32 *qt_size)
 
     assert(r > 0);
 
-    u16 qt_w = (1 << r);
-    u32 leaf_cnt = qt_w * qt_w / 4;
-
     u32 qt_nibble_cnt = qt_calc_node_cnt(r);
     u32 qt_bytes = (qt_nibble_cnt + 1) / 2;
 
@@ -77,8 +75,6 @@ void qt_from_pix(const u8 *pix, u16 w, u16 h, u8 **qt, u32 *qt_size)
 
     u16 w_bytes = (w + 7) / 8;
     const u8 *pix_row = pix;
-
-    u32 leaves_i = qt_nibble_cnt - leaf_cnt;
 
     for (u16 y = 0; y < h; y++)
     {
@@ -94,7 +90,7 @@ void qt_from_pix(const u8 *pix, u16 w, u16 h, u8 **qt, u32 *qt_size)
     }
 }
 
-bool qt_is_all_ones(u8 *qt, u32 qt_i, const u32 qt_n)
+static bool is_all_ones(u8 *qt, u32 qt_i, const u32 qt_n)
 {
     bool all_set = na_read(qt, qt_i) == 0xF;
 
@@ -104,25 +100,54 @@ bool qt_is_all_ones(u8 *qt, u32 qt_i, const u32 qt_n)
     {
         for (u8 q = 0; q < QUAD_Cnt && all_set; q++)
         {
-            all_set = all_set && qt_is_all_ones(qt, qt_i + q, qt_n);
+            all_set = all_set && is_all_ones(qt, qt_i + q, qt_n);
         }
     }
 
     return all_set;
 }
 
-void qt_fill_zeros(u8 *qt, u32 qt_i, const u32 qt_n)
+/**
+ * Fill a subtree of a linear quadtree with 1s.
+ *
+ * @param qt pointer to quadtree array
+ * @param qt_i index of subtree's root node
+ * @param qt_n node count of whole quadtree
+ */
+static void fill_ones(u8 *qt, u32 qt_i, u32 qt_n)
 {
-    na_write(qt, qt_i, 0);
-
-    qt_i = 4 * qt_i + 1;
-
-    if (qt_i < qt_n)
+    u32 lvl_len = 1;
+    while (qt_i < qt_n)
     {
-        for (u8 q = 0; q < QUAD_Cnt; q++)
+        for (u32 j = 0; j < lvl_len; j++)
         {
-            qt_fill_zeros(qt, qt_i + q, qt_n);
+            na_write(qt, qt_i + j, 0xF);
         }
+
+        lvl_len *= 4;
+        qt_i *= 4;
+    }
+}
+
+/**
+ * Fill a subtree of a linear quadtree with 0s.
+ *
+ * @param qt pointer to quadtree array
+ * @param qt_i index of subtree's root node
+ * @param qt_n node count of whole quadtree
+ */
+static void fill_zeros(u8 *qt, u32 qt_i, const u32 qt_n)
+{
+    u16 lvl_len = 1;
+    while (qt_i < qt_n)
+    {
+        for (u16 j = 0; j < lvl_len; j++)
+        {
+            na_write(qt, qt_i + j, 0x0);
+        }
+
+        lvl_len *= 4;
+        qt_i *= 4;
     }
 }
 
@@ -132,38 +157,45 @@ void qt_compress(u8 *qt, u32 qt_size, u8 r, u8 **qtc, u8 *qtc_size)
 
     u32 qt_n = qt_calc_node_cnt(r);
 
-    u32 p_i = 0;
-    u32 c_i = 0;
-    u32 qtc_i = 0;
+    u32 qt_p = 0;
+    u32 qt_c = 0;
 
-    na_write(*qtc, qtc_i++, na_read(qt, c_i++));
+    u32 qtc_p_ofs = 0;
+    u32 qtc_c = 0;
 
-    while (c_i < qt_n)
+    na_write(*qtc, qtc_c++, na_read(qt, qt_c++));
+    qtc_p_ofs++;
+
+    while (qt_c < qt_n)
     {
-        if (qt_is_all_ones(qt, p_i, qt_n))
+        if (is_all_ones(qt, qt_p, qt_n))
         {
-            na_write(*qtc, qtc_i++, 0);
+            na_write(*qtc, qtc_c++, 0);
+            
             for (u8 q = 0; q < QUAD_Cnt; q++)
             {
-                qt_fill_zeros(qt, c_i++, qt_n);
+                fill_zeros(qt, qt_c++, qt_n);
             }
+            na_write(*qtc, qtc_c - qtc_p_ofs, COMP_CODE_FILL);
         }
         else
         {
-            u8 p = na_read(qt, p_i);
+            u8 qt_p = na_read(qt, qt_p);
             for (u8 q = 0; q < QUAD_Cnt; q++)
             {
-                if (p & (1 << q))
+                if (qt_p & (1 << q))
                 {
-                    na_write(*qtc, qtc_i++, na_read(qt, c_i++));
+                    na_write(*qtc, qtc_c++, na_read(qt, qt_c));
+                    qtc_p_ofs++;
                 }
+                qt_c++;
             }
         }
 
-        p_i++;
+        qt_p++;
     }
 
-    *qtc_size = (qtc_i + 1) / 2;
+    *qtc_size = (qtc_c + 1) / 2;
     *qtc = realloc(*qtc, *qtc_size);
 }
 
