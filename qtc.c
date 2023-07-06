@@ -171,7 +171,7 @@ void qt_compress(u8 *qt, u32 qt_size, u8 r, u8 **qtc, u8 *qtc_size)
         if (is_all_ones(qt, qt_p, qt_n))
         {
             na_write(*qtc, qtc_c++, 0);
-            
+
             for (u8 q = 0; q < QUAD_Cnt; q++)
             {
                 fill_zeros(qt, qt_c++, qt_n);
@@ -181,14 +181,20 @@ void qt_compress(u8 *qt, u32 qt_size, u8 r, u8 **qtc, u8 *qtc_size)
         else
         {
             u8 qt_p = na_read(qt, qt_p);
+            u8 c_cnt = 0;
             for (u8 q = 0; q < QUAD_Cnt; q++)
             {
                 if (qt_p & (1 << q))
                 {
                     na_write(*qtc, qtc_c++, na_read(qt, qt_c));
-                    qtc_p_ofs++;
+                    c_cnt++;
                 }
                 qt_c++;
+            }
+
+            if (c_cnt > 0)
+            {
+                qtc_p_ofs += c_cnt - 1;
             }
         }
 
