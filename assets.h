@@ -9,8 +9,8 @@ extern const unsigned char book_bmp_bits[];
 #define BOOK_BMP_SM_HEIGHT 412
 extern const unsigned char book_bmp_sm_bits[];
 
-#define GLOBE_WIDTH 1024
-#define GLOBE_HEIGHT 1024
+#define GLOBE_WIDTH 512
+#define GLOBE_HEIGHT 512
 extern const unsigned char globe_bits[];
 
 #define GLOBE_SM_WIDTH 512

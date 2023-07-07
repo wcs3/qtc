@@ -30,18 +30,20 @@ int main()
 {
     u8 *qtc;
     u32 qtc_byte_cnt;
-    qtc_encode(globe_xxs_bits, GLOBE_XXS_WIDTH, GLOBE_XXS_HEIGHT, &qtc, &qtc_byte_cnt);
+    qtc_encode(map_bits, MAP_WIDTH, MAP_HEIGHT, &qtc, &qtc_byte_cnt);
 
-    printf("Uncompressed size: %u bytes\n", (GLOBE_XXS_WIDTH + 7) / 8 * GLOBE_XXS_HEIGHT);
+    printf("Uncompressed size: %u bytes\n", (MAP_WIDTH + 7) / 8 * MAP_HEIGHT);
     printf("Compressed size: %u bytes\n", qtc_byte_cnt);
 
     u8 *pix;
 
-    qtc_decode(qtc, GLOBE_XXS_WIDTH, GLOBE_XXS_HEIGHT, &pix);
+    qtc_decode(qtc, MAP_WIDTH, MAP_HEIGHT, &pix);
 
-    print_img(globe_xxs_bits, GLOBE_XXS_WIDTH, GLOBE_XXS_HEIGHT);
+    // print_img(globe_bits, GLOBE_WIDTH, GLOBE_HEIGHT);
 
-    print_img(pix, GLOBE_XXS_WIDTH, GLOBE_XXS_HEIGHT);
+    // printf("\n");
+
+    // print_img(pix, GLOBE_WIDTH, GLOBE_HEIGHT);
 
     return 0;
 }
