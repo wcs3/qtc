@@ -1,15 +1,53 @@
 #ifndef __MORTON_H__
 #define __MORTON_H__
 
-#include "types.h"
+#include <stdint.h>
 
-u32 morton_encode(u16 x, u16 y);
-void morton_decode(u32 morton, u16 *x, u16 *y);
+/**
+ * Get morton code from x and y coordinates
+ *
+ * @param x x coordinate
+ * @param y y coordinate
+ *
+ * @return morton encoding of x and y coordinates
+ */
+uint32_t morton_encode(uint16_t x, uint16_t y);
 
-void morton_inc_x(u32 *morton);
-void morton_inc_y(u32 *morton);
+/**
+ * Get x and y coordinates from a morton code
+ *
+ * @param morton morton code
+ * @param x pointer to variable that will hold x coord
+ * @param y pointer to variable that will hold y coord
+ */
+void morton_decode(uint32_t morton, uint16_t *x, uint16_t *y);
 
-void morton_set_zero_x(u32 *morton);
-void morton_set_zero_y(u32 *morton);
+/**
+ * Increment the x value within a morton encoding
+ *
+ * @param morton pointer to morton code
+ */
+void morton_inc_x(uint32_t *morton);
+
+/**
+ * Increment the y value within a morton encoding
+ *
+ * @param morton pointer to morton code
+ */
+void morton_inc_y(uint32_t *morton);
+
+/**
+ * Set the x value within a morton encoding to 0
+ *
+ * @param morton pointer to morton code
+ */
+void morton_set_zero_x(uint32_t *morton);
+
+/**
+ * Set the y value within a morton encoding to 0
+ *
+ * @param morton pointer to morton code
+ */
+void morton_set_zero_y(uint32_t *morton);
 
 #endif // __MORTON_H__

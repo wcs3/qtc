@@ -37,4 +37,25 @@ extern const unsigned char map_s_bits[];
 #define MAP_320X144_HEIGHT 144
 extern const unsigned char map_320x144_bits[];
 
+#define MAP_XL_WIDTH 16384
+#define MAP_XL_HEIGHT 8192
+extern const unsigned char map_xl_bits[];
+
+#define HORSE_WIDTH 1600
+#define HORSE_HEIGHT 1376
+extern const unsigned char horse_bits[];
+
+#define GRASS_WIDTH 2048
+#define GRASS_HEIGHT 2048
+extern const unsigned char grass_bits[];
+
+#define CANADA_WIDTH 4096
+#define CANADA_HEIGHT 3172
+extern const unsigned char canada_bits[];
+
+#define CANADA_XL_WIDTH 16384
+#define CANADA_XL_HEIGHT 12687
+extern const unsigned char canada_xl_bits[];
+
+
 #endif // __ASSETS_H__

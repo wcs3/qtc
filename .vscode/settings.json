@@ -12,7 +12,10 @@
         "types.h": "c",
         "stdint.h": "c",
         "qtc.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "qtc2.h": "c",
+        "utils.h": "c",
+        "morton.h": "c"
     },
     "C_Cpp.default.compilerPath": "/usr/bin/gcc"
 }

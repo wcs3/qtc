@@ -1,5 +1,5 @@
 CC = gcc
-VERSION = -std=c2x
+VERSION = -std=c99
 DEBUG = -g
 
 CFLAGS = -pedantic -Wall -Wextra $(VERSION) $(DEBUG)

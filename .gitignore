@@ -50,3 +50,7 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Specific Files
+canada_xl.c
+map_xl.c
