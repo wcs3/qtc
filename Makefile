@@ -23,5 +23,5 @@ test: all
 	./$(EXEC)
 
 clean:
-	\rm -f *.o $(EXEC)
+	\rm -f *.o *.qtc $(EXEC)
 	@echo clean done

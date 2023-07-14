@@ -57,5 +57,9 @@ extern const unsigned char canada_bits[];
 #define CANADA_XL_HEIGHT 12687
 extern const unsigned char canada_xl_bits[];
 
+#define JWST_NEBULA_WIDTH 14575
+#define JWST_NEBULA_HEIGHT 8441
+extern const unsigned char jwst_nebula_bits[];
+
 
 #endif // __ASSETS_H__

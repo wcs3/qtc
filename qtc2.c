@@ -1,4 +1,4 @@
-#include "morton.h"
+#include "mort.h"
 #include "utils.h"
 #include "qtc2.h"
 #include <string.h>
@@ -240,7 +240,7 @@ void qtc2_encode(const u8 *pix, u16 w, u16 h, u8 **qtc, u32 *qtc_size)
     free(qt);
 }
 
-static void qtc_decompress(u8 *qtc, u8 r, u8 **qt, u32 *qt_n)
+static void qtc_decompress(const u8 *qtc, u8 r, u8 **qt, u32 *qt_n, u32 *comp_size)
 {
     *qt_n = calc_node_cnt(r);
     u32 qt_size = (*qt_n + 1) / 2;
@@ -290,6 +290,8 @@ static void qtc_decompress(u8 *qtc, u8 r, u8 **qt, u32 *qt_n)
 
         qt_p++;
     }
+
+    *comp_size = (qtc_c + 7) / 8;
 }
 
 static void qt_to_pix(u8 *qt, u8 r, u16 w, u16 h, u8 **pix)
@@ -305,20 +307,17 @@ static void qt_to_pix(u8 *qt, u8 r, u16 w, u16 h, u8 **pix)
     u8 *row_l = row_h + w_bytes;
     u32 mc = 0;
 
-    for (u16 y = 0; y < (h + 1) / 2; y++)
+    for (u16 y = 0; y < (h & ~1); y += 2)
     {
-        for (u16 x = 0; x < (w + 1) / 2; x++)
+        for (u16 x = 0; x < w; x += 2)
         {
             u8 nib = na_read(qt, leaf_i + mc);
 
             u8 nib_h = (nib >> 0) & 0x3;
             u8 nib_l = (nib >> 2) & 0x3;
 
-            row_h[x / 4] |= nib_h << ((x % 4) * 2);
-            if (2 * y < h)
-            {
-                row_l[x / 4] |= nib_l << ((x % 4) * 2);
-            }
+            row_h[x / 8] |= nib_h << (x % 8);
+            row_l[x / 8] |= nib_l << (x % 8);
 
             morton_inc_x(&mc);
         }
@@ -327,15 +326,29 @@ static void qt_to_pix(u8 *qt, u8 r, u16 w, u16 h, u8 **pix)
         row_h += 2 * w_bytes;
         row_l += 2 * w_bytes;
     }
+
+    if (h & 1)
+    {
+        for (uint16_t x = 0; x < w; x += 2)
+        {
+            uint8_t nib = na_read(qt, leaf_i + mc);
+
+            uint8_t nwne = nib & 0x3;
+
+            row_h[x / 8] |= nwne << (x % 8);
+
+            morton_inc_x(&mc);
+        }
+    }
 }
 
-void qtc2_decode(u8 *qtc, u16 w, u16 h, u8 **pix)
+void qtc2_decode(const u8 *qtc, u16 w, u16 h, u8 **pix, u32 *comp_size)
 {
     u8 r = calc_lvls(w, h);
     u8 *qt;
     u32 qt_n;
 
-    qtc_decompress(qtc, r, &qt, &qt_n);
+    qtc_decompress(qtc, r, &qt, &qt_n, comp_size);
     qt_to_pix(qt, r, w, h, pix);
 
     free(qt);

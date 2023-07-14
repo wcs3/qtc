@@ -1,4 +1,4 @@
-#include "morton.h"
+#include "mort.h"
 #include "utils.h"
 #include "qtc.h"
 
@@ -65,26 +65,40 @@ static bool is_all_ones(uint8_t *qt, uint32_t qt_i, const uint32_t qt_n)
     return all_set;
 }
 
-/**
- * Fill a subtree of a linear quadtree with 1s.
- *
- * @param qt pointer to quadtree array
- * @param qt_i index of subtree's root node
- * @param qt_n node count of whole quadtree
- */
-static void fill_ones(uint8_t *qt, uint32_t qt_i, uint32_t qt_n)
+static uint8_t get_fill_lvl(uint8_t *qt, uint32_t qt_i, const uint32_t qt_n, const uint8_t val)
+{
+    if (na_read(qt, qt_i) != val)
+    {
+        return 0;
+    }
+
+    qt_i = 4 * qt_i + 1;
+    uint8_t min_fill_lvl = 1;
+    if (qt_i < qt_n)
+    {
+        min_fill_lvl += MIN4(get_fill_lvl(qt, qt_i + 0, qt_n, val),
+                             get_fill_lvl(qt, qt_i + 1, qt_n, val),
+                             get_fill_lvl(qt, qt_i + 2, qt_n, val),
+                             get_fill_lvl(qt, qt_i + 3, qt_n, val));
+    }
+
+    return min_fill_lvl;
+}
+
+static void fill_val_to_lvl(uint8_t *qt, uint32_t qt_i, uint8_t lvl, const uint8_t val)
 {
     uint32_t lvl_len = 1;
-    while (qt_i < qt_n)
+
+    while (lvl)
     {
         for (uint32_t j = 0; j < lvl_len; j++)
         {
-            na_write(qt, qt_i + j, 0xF);
+            na_write(qt, qt_i + j, val);
         }
 
         lvl_len *= 4;
-        qt_i *= 4;
-        qt_i += 1;
+        qt_i = 4 * qt_i + 1;
+        lvl--;
     }
 }
 
@@ -108,6 +122,39 @@ static void fill_zeros(uint8_t *qt, uint32_t qt_i, const uint32_t qt_n)
         lvl_len *= 4;
         qt_i *= 4;
         qt_i += 1;
+    }
+}
+
+/**
+ * Fill a subtree of a linear quadtree with 1s.
+ *
+ * @param qt pointer to quadtree array
+ * @param qt_i index of subtree's root node
+ * @param qt_n node count of whole quadtree
+ */
+static void fill_ones(uint8_t *qt, uint32_t qt_i, const uint32_t qt_n)
+{
+    uint32_t lvl_len = 1;
+    while (qt_i < qt_n)
+    {
+        for (uint32_t j = 0; j < lvl_len; j++)
+        {
+            na_write(qt, qt_i + j, 0xF);
+        }
+
+        lvl_len *= 4;
+        qt_i *= 4;
+        qt_i += 1;
+    }
+}
+
+static void arr_invert(uint8_t *arr, const uint32_t size)
+{
+    uint8_t *arr_end = arr + size;
+    while (arr < arr_end)
+    {
+        (*arr) = ~(*arr);
+        arr++;
     }
 }
 
@@ -212,7 +259,7 @@ static uint8_t *qt_from_pixels(const uint8_t *pixels, uint16_t w, uint16_t h, ui
  *
  * @return pointer to compressed quad tree. NULL if unsuccessful
  */
-static uint8_t *qt_compress(uint8_t *qt, uint32_t qt_n, uint32_t *out_size)
+static uint8_t *qt_compress(uint8_t *qt, uint32_t qt_n, bool inverted, uint32_t *out_size)
 {
     uint32_t qt_size = (qt_n + 1) / 2;
     uint8_t *qtc = malloc(qt_size);
@@ -228,6 +275,7 @@ static uint8_t *qt_compress(uint8_t *qt, uint32_t qt_n, uint32_t *out_size)
 
     uint32_t qtc_pos = 0;
 
+    na_write(qtc, qtc_pos++, inverted);
     na_write(qtc, qtc_pos++, na_read(qt, chld_pos++));
 
     while (chld_pos < qt_n)
@@ -259,23 +307,67 @@ static uint8_t *qt_compress(uint8_t *qt, uint32_t qt_n, uint32_t *out_size)
 
 uint8_t *qtc_encode(const uint8_t *data, uint16_t w, uint16_t h, uint32_t *out_size)
 {
-    uint8_t *qt, *qtc;
+    uint8_t *qt, *qtc, *qtc_inv, *data_inv;
+    uint32_t data_size, qtc_size, qtc_inv_size;
     uint32_t qt_n;
+
+    data_size = (w + 7) / 8 * h;
+
     qt = qt_from_pixels(data, w, h, &qt_n);
-    if (qt == NULL)
+    if (!qt)
     {
-        qtc = NULL;
+        return NULL;
+    }
+
+    qtc = qt_compress(qt, qt_n, false, &qtc_size);
+    free(qt);
+
+    if (!qtc)
+    {
+        return NULL;
+    }
+
+    data_inv = malloc(data_size);
+    if (!data_inv)
+    {
+        return NULL;
+    }
+
+    memcpy(data_inv, data, data_size);
+    arr_invert(data_inv, data_size);
+
+    qt = qt_from_pixels(data_inv, w, h, &qt_n);
+    free(data_inv);
+    if (!qt)
+    {
+        free(qtc);
+        return NULL;
+    }
+
+    qtc_inv = qt_compress(qt, qt_n, true, &qtc_inv_size);
+    free(qt);
+    if (!qtc_inv)
+    {
+        free(qtc);
+        return NULL;
+    }
+
+    if (qtc_size < qtc_inv_size)
+    {
+        free(qtc_inv);
+        *out_size = qtc_size;
     }
     else
     {
-        qtc = qt_compress(qt, qt_n, out_size);
-        free(qt);
+        free(qtc);
+        qtc = qtc_inv;
+        *out_size = qtc_inv_size;
     }
 
     return qtc;
 }
 
-static uint8_t *qtc_decompress(const uint8_t *qtc, uint16_t w, uint16_t h, uint32_t *qt_n)
+static uint8_t *qtc_decompress(const uint8_t *qtc, uint16_t w, uint16_t h, bool *inverted, uint32_t *qt_n, uint32_t *comp_size)
 {
     uint8_t r = calc_lvls(w, h);
     *qt_n = calc_node_cnt(r);
@@ -293,6 +385,8 @@ static uint8_t *qtc_decompress(const uint8_t *qtc, uint16_t w, uint16_t h, uint3
     uint32_t prnt_pos = 0;
     uint32_t chld_pos = 0;
     uint32_t qtc_pos = 0;
+
+    *inverted = na_read(qtc, qtc_pos++);
 
     // copy the first node of the compressed quad tree (the root)
     na_write(qt, chld_pos++, na_read(qtc, qtc_pos++));
@@ -318,6 +412,8 @@ static uint8_t *qtc_decompress(const uint8_t *qtc, uint16_t w, uint16_t h, uint3
         }
         prnt_pos++;
     }
+
+    *comp_size = (qtc_pos + 1) / 2;
 
     return qt;
 }
@@ -355,7 +451,8 @@ static uint8_t *qt_to_pixels(uint8_t *qt, uint32_t qt_n, uint16_t w, uint16_t h)
         px_row_lo += 2 * px_row_size;
     }
 
-    if(h & 1) {
+    if (h & 1)
+    {
         for (uint16_t x = 0; x < w; x += 2)
         {
             uint8_t nib = na_read(qt, leaf_i + morton);
@@ -371,20 +468,24 @@ static uint8_t *qt_to_pixels(uint8_t *qt, uint32_t qt_n, uint16_t w, uint16_t h)
     return pixels;
 }
 
-uint8_t *qtc_decode(const uint8_t *qtc, uint16_t w, uint16_t h)
+uint8_t *qtc_decode(const uint8_t *qtc, uint16_t w, uint16_t h, uint32_t *comp_size)
 {
     uint8_t *qt, *pixels;
     uint32_t qt_n;
+    bool inverted;
 
-    qt = qtc_decompress(qtc, w, h, &qt_n);
+    qt = qtc_decompress(qtc, w, h, &inverted, &qt_n, comp_size);
     if (qt == NULL)
     {
-        pixels = NULL;
+        return NULL;
     }
-    else
+
+    pixels = qt_to_pixels(qt, qt_n, w, h);
+    free(qt);
+
+    if (inverted)
     {
-        pixels = qt_to_pixels(qt, qt_n, w, h);
-        free(qt);
+        arr_invert(pixels, (w + 7) / 8 * h);
     }
 
     return pixels;

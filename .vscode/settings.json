@@ -15,7 +15,10 @@
         "stdio.h": "c",
         "qtc2.h": "c",
         "utils.h": "c",
-        "morton.h": "c"
+        "morton.h": "c",
+        "bps.h": "c",
+        "pgm.h": "c",
+        "stdbool.h": "c"
     },
     "C_Cpp.default.compilerPath": "/usr/bin/gcc"
 }
