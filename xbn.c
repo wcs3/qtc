@@ -28,16 +28,6 @@ static bool arr_read_bit(const uint8_t *arr, const uint32_t i)
     return arr[byte] & (1 << shift);
 }
 
-static void arr_invert(uint8_t *arr, const uint32_t size)
-{
-    uint8_t *arr_end = arr + size;
-    while (arr < arr_end)
-    {
-        (*arr) = ~(*arr);
-        arr++;
-    }
-}
-
 typedef struct
 {
     uint32_t bit_pos;

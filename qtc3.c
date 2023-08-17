@@ -5,8 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
-
 enum
 {
     QUAD_NW = 0,
@@ -48,23 +46,6 @@ static uint8_t calc_lvls(uint16_t w, uint16_t h)
         r++;
 
     return r;
-}
-
-static bool is_all_ones(uint8_t *qt, uint32_t qt_i, const uint32_t qt_n)
-{
-    bool all_set = na_read(qt, qt_i) == 0xF;
-
-    qt_i = 4 * qt_i + 1;
-
-    if (qt_i < qt_n)
-    {
-        for (uint8_t q = 0; q < QUAD_Cnt && all_set; q++)
-        {
-            all_set = all_set && is_all_ones(qt, qt_i + q, qt_n);
-        }
-    }
-
-    return all_set;
 }
 
 static bool is_all_ones(uint8_t *qt, uint32_t qt_i, const uint32_t qt_n)
@@ -130,16 +111,6 @@ static void fill_ones(uint8_t *qt, uint32_t qt_i, const uint32_t qt_n)
     }
 }
 
-static void arr_invert(uint8_t *arr, const uint32_t size)
-{
-    uint8_t *arr_end = arr + size;
-    while (arr < arr_end)
-    {
-        (*arr) = ~(*arr);
-        arr++;
-    }
-}
-
 /**
  * Convert a 1-bit raster image to its uncompressed quad tree
  * representation
@@ -193,7 +164,7 @@ static uint8_t *qt_from_pixels(const uint8_t *pixels, uint16_t w, uint16_t h, ui
         }
 
         morton_inc_y(&morton);
-        morton_set_zero_x(&morton);
+        morton_rst_x(&morton);
 
         px_row_hi += px_row_inc;
         px_row_lo += px_row_inc;
@@ -287,7 +258,7 @@ static uint8_t *qt_compress(uint8_t *qt, uint32_t qt_n, bool inverted, uint32_t 
     return realloc(qtc, *out_size);
 }
 
-uint8_t *qtc_encode(const uint8_t *data, uint16_t w, uint16_t h, uint32_t *out_size)
+uint8_t *qtc3_encode(const uint8_t *data, uint16_t w, uint16_t h, uint32_t *out_size)
 {
     uint8_t *qt, *qtc, *qtc_inv, *data_inv;
     uint32_t data_size, qtc_size, qtc_inv_size;
@@ -428,7 +399,7 @@ static uint8_t *qt_to_pixels(uint8_t *qt, uint32_t qt_n, uint16_t w, uint16_t h)
             morton_inc_x(&morton);
         }
         morton_inc_y(&morton);
-        morton_set_zero_x(&morton);
+        morton_rst_x(&morton);
         px_row_hi += 2 * px_row_size;
         px_row_lo += 2 * px_row_size;
     }
@@ -450,7 +421,7 @@ static uint8_t *qt_to_pixels(uint8_t *qt, uint32_t qt_n, uint16_t w, uint16_t h)
     return pixels;
 }
 
-uint8_t *qtc_decode(const uint8_t *qtc, uint16_t w, uint16_t h, uint32_t *comp_size)
+uint8_t *qtc3_decode(const uint8_t *qtc, uint16_t w, uint16_t h, uint32_t *comp_size)
 {
     uint8_t *qt, *pixels;
     uint32_t qt_n;

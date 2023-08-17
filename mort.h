@@ -41,13 +41,13 @@ void morton_inc_y(uint32_t *morton);
  *
  * @param morton pointer to morton code
  */
-void morton_set_zero_x(uint32_t *morton);
+void morton_rst_x(uint32_t *morton);
 
 /**
  * Set the y value within a morton encoding to 0
  *
  * @param morton pointer to morton code
  */
-void morton_set_zero_y(uint32_t *morton);
+void morton_rst_y(uint32_t *morton);
 
 #endif // __MORTON_H__

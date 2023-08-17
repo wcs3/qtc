@@ -1,26 +1,11 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
+#include "types.h"
+
 #include <stdint.h>
 #include <stdbool.h>
 
-#define NIBBLE_TO_BINARY_PATTERN "%c%c%c%c"
-#define NIBBLE_TO_BINARY(nibble)     \
-    ((nibble)&0x08 ? '1' : '0'),     \
-        ((nibble)&0x04 ? '1' : '0'), \
-        ((nibble)&0x02 ? '1' : '0'), \
-        ((nibble)&0x01 ? '1' : '0')
-
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)       \
-    ((byte)&0x80 ? '1' : '0'),     \
-        ((byte)&0x40 ? '1' : '0'), \
-        ((byte)&0x20 ? '1' : '0'), \
-        ((byte)&0x10 ? '1' : '0'), \
-        ((byte)&0x08 ? '1' : '0'), \
-        ((byte)&0x04 ? '1' : '0'), \
-        ((byte)&0x02 ? '1' : '0'), \
-        ((byte)&0x01 ? '1' : '0')
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MIN4(a, b, c, d) (MIN(MIN(a, b), MIN(c, d)))
@@ -31,12 +16,12 @@
  *
  * @param p pointer to nibble array
  * @param i nibble index
- * @param val 4 bit value (4 lsbs are masked out)
+ * @param val 4-bit value (4 lsbs are masked out)
  */
-static inline void na_write(uint8_t *na, uint32_t i, uint8_t val)
+static inline void na_write(u8 *na, u32 i, u8 val)
 {
-    uint32_t byte_index = i / 2;
-    uint8_t nibble_shift = (i & 1) * 4;
+    u32 byte_index = i / 2;
+    u8 nibble_shift = (i & 1) * 4;
 
     na[byte_index] &= ~(0xF << nibble_shift);
     na[byte_index] |= (val & 0xF) << nibble_shift;
@@ -47,28 +32,41 @@ static inline void na_write(uint8_t *na, uint32_t i, uint8_t val)
  *
  * @param p pointer to nibble array
  * @param i nibble index
- * @return 4 bit value at index i
+ * @return 4-bit value at index i
  */
-static inline uint8_t na_read(const uint8_t *na, uint32_t i)
+static inline u8 na_read(const u8 *na, u32 i)
 {
-    uint32_t byte_index = i / 2;
-    uint8_t nibble_shift = (i & 1) * 4;
+    u32 byte_index = i / 2;
+    u8 nibble_shift = (i & 1) * 4;
 
     return (na[byte_index] >> nibble_shift) & 0xF;
 }
 
-/**
- * Check if a bit is set in an array
- *
- * @param p pointer to array
- * @param i position of bit. Bit positions are as follows
- * @return true if set, false if not
- */
-static inline bool bit_is_set(const uint8_t *p, uint16_t i)
+static inline void ba_write(u8 *ba, u32 i, bool val)
 {
-    uint16_t byte_i = i / 8;
-    uint8_t shift = i % 8;
-    return (p[byte_i] >> shift) & 0x1;
+    u32 byte_index = i / 8;
+    u8 bit_shift = i % 8;
+
+    ba[byte_index] &= ~(0x1 << bit_shift);
+    ba[byte_index] |= val << bit_shift;
+}
+
+static inline bool ba_read(const u8 *ba, u32 i)
+{
+    u32 byte_index = i / 8;
+    u32 bit_shift = i % 8;
+
+    return (ba[byte_index] >> bit_shift) & 0x1;
+}
+
+static inline void arr_invert(u8 *arr, const u32 size)
+{
+    u8 *arr_end = arr + size;
+    while (arr < arr_end)
+    {
+        (*arr) = ~(*arr);
+        arr++;
+    }
 }
 
 #endif // __UTILS_H__

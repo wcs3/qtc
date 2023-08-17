@@ -20,7 +20,7 @@ void morton_inc_x(uint32_t *morton)
     *morton = (xsum & 0x55555555) | (*morton & 0xAAAAAAAA);
 }
 
-void morton_set_zero_x(uint32_t *morton)
+void morton_rst_x(uint32_t *morton)
 {
     *morton &= ~(0x55555555);
 }
@@ -31,7 +31,7 @@ void morton_inc_y(uint32_t *morton)
     *morton = (ysum & 0xAAAAAAAA) | (*morton & 0x55555555);
 }
 
-void morton_set_zero_y(uint32_t *morton)
+void morton_rst_y(uint32_t *morton)
 {
     *morton &= ~(0xAAAAAAAA);
 }

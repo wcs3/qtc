@@ -18,7 +18,13 @@
         "morton.h": "c",
         "bps.h": "c",
         "pgm.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "system_error": "c",
+        "mort.h": "c",
+        "string.h": "c",
+        "qtcf.h": "c",
+        "stddef.h": "c",
+        "filt_up.h": "c"
     },
     "C_Cpp.default.compilerPath": "/usr/bin/gcc"
 }
